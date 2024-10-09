@@ -14,21 +14,25 @@ async def read_serial():
 
     uart = machine.UART(0, 9600)
     print(uart)
-    ste = None
+    lx200_command = None
+    lx200_RA = None
     msg = ""
 
 
     while True:
         if uart.any():
-            b = uart.readline()
-            print(type(b))
-            print(b)
+            lx200_command = uart.readline()
+            print(type(lx200_command))
+            print(lx200_command)
             try:
-                msg = b.decode('utf-8')
+                msg = lx200_command.decode('utf-8')
                 print(type(msg))
                 print(">> " + msg)
-                if msg == "e":
-
+                if lx200_command == "#:GR#":
+                    lx200_RA = "6h24m30.43s"
+                    uart.sendline(lx200_RA)
+                else:
+                    pass
             except:
                 pass
         await asyncio.sleep_ms(500)
