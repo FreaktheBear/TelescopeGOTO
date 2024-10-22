@@ -1,18 +1,23 @@
 import asyncio
 import os
 import machine
+import math
 import utime, time
-from machine import Pin, UART
+from machine import I2C, Pin, UART
+from math import sqrt, atan2, pi, copysign, sin, cos
+from imu import MPU6050
 
 
 # ---------------- Variable Decleration ------------------
-g_latitude = 0.0
-g_longitude = 0.0
+g_my_latitude = 0.0
+g_my_longitude = 0.0
+g_my_altitude = 0.0
+g_scope_altitude = None
 
-# ---------------- Async:Read Serial Data from NEO-7M GPS ------------------
+# ---------------- Async: Read Serial Data from NEO-7M GPS ------------------
 async def read_gps():
 
-    global g_latitude, g_longitude
+    global g_my_latitude, g_my_longitude, g_my_altitude
     gps_input= UART(1,baudrate=9600, tx=Pin(4), rx=Pin(5))
     print(gps_input)
 
@@ -21,6 +26,7 @@ async def read_gps():
     #Store GPS Coordinates
     latitude = None
     longitude = None
+    altitude = None
     satellites = None
     gpsTime = None
 
@@ -52,7 +58,7 @@ async def read_gps():
                 #print("N/S         : " + parts[3])
                 #print("Longitude   : " + parts[4])
                 #print("E/W         : " + parts[5])
-                #print("Position Fix: " + parts[6])
+                print("Position Fix: " + parts[6])
                 #print("n sat       : " + parts[7])
                 latitude = convertToDegree(parts[2])
                 if (parts[3] == 'S'):
@@ -62,28 +68,82 @@ async def read_gps():
                     longitude = -float(longitude)
                 satellites = parts[7]
                 gpsTime = parts[1][0:2] + ":" + parts[1][2:4] + ":" + parts[1][4:6]
-                if (parts[6] == '1'):
+                if (parts[6] == '1' or parts[6] == '2'):
                     print(latitude)
                     print(longitude)
                     print(satellites)
                     print(gpsTime)
-                    g_latitude = latitude
-                    g_longitude = longitude
+                    g_my_latitude = latitude
+                    g_my_longitude = longitude
+
                     FIX_STATUS = True
                 else:
                     print('No GPS fix')
+            
             await asyncio.sleep_ms(250)
         await asyncio.sleep_ms(250)
 
+# ---------------- Async: Read Data from IMU ------------------
+async def read_imu():
 
-# ---------------- Async:Serial Data from/to Stellarium ------------------
+    global g_scope_altitude
+    i2c = I2C(0, sda=Pin(20), scl=Pin(21), freq=400000)    
+    mpu = MPU6050(i2c)
+
+    Atan = 0
+    Confidence_Val = 0.1
+
+    while True:
+        xAccel = mpu.accel.x
+        if xAccel > 1:
+            xAccel = 1
+        elif xAccel < -1:
+            xAccel = -1
+        yAccel = mpu.accel.y
+        if yAccel > 1:
+            yAccel = 1
+        elif yAccel < -1:
+            yAccel = -1
+        zAccel = mpu.accel.z
+        if zAccel > 1:
+            zAccel = 1
+        elif zAccel < -1:
+            zAccel = -1
+        xRad = math.acos(xAccel)
+        xDeg = xRad/(2*math.pi)*360
+        yRad = math.acos(yAccel)
+        yDeg = yRad/(2*math.pi)*360
+        zRad = math.asin(zAccel)
+        zDeg = zRad/(2*math.pi)*360
+        Atan = Confidence_Val*math.atan2(zAccel,yAccel)+(1-Confidence_Val)*Atan
+        if g_my_latitude < 0: # Correction for Southern hemisphere
+            AtanDeg = -1*Atan/2/math.pi*360
+        else:
+            AtanDeg = Atan/2/math.pi*360
+        #print("xAccel: ",xAccel ," G", "yAccel: ",yAccel ," G", "zAccel: ",zAccel ," G")
+        #print("Altitude ", AtanDeg, " Deg")
+        degrees, minsec = divmod(AtanDeg, 1)
+        degrees_str = str('%02d' % int(degrees))
+        decimal_deg = minsec*60
+        deg_min, seconds = divmod(decimal_deg, 1)
+        deg_min_str = str('%02d' % int(deg_min))
+        deg_sec = seconds*60
+        deg_sec_str = str('%02d' % int(deg_sec))
+        g_scope_altitude = (degrees_str+'"'+deg_min_str+':'+deg_sec_str+'#')
+        #print(degrees_str, deg_min_str, deg_sec_str)
+        #print(g_scope_altitude)
+        await asyncio.sleep_ms(100)
+
+
+
+# ---------------- Async: Serial Data from/to Stellarium ------------------
 async def readwrite_stellarium():
 
     stellarium_uart = UART(0, baudrate=9600, tx=Pin(0), rx=Pin(1))
     stellarium_uart.init(bits=8, parity=None, stop=1)
     print(stellarium_uart)
     RA = '19:50:57#'
-    DEC = '-25"58:14#'
+    #DEC = '-45"58:14#'
     LX200_command = None
 
     while True:
@@ -95,8 +155,8 @@ async def readwrite_stellarium():
                     print(RA)
                     stellarium_uart.write(RA)
                 elif LX200_command == b"#:GD#":
-                    print(DEC)
-                    stellarium_uart.write(DEC)
+                    print(g_scope_altitude)
+                    stellarium_uart.write(g_scope_altitude)
                 else:
                     pass
             except:
@@ -107,6 +167,7 @@ async def readwrite_stellarium():
 # ---------------- Main Program Loop ------------------
 async def main():
     asyncio.create_task(read_gps())
+    asyncio.create_task(read_imu())
     asyncio.create_task(readwrite_stellarium())
     
     while True:
