@@ -5,14 +5,22 @@ import math
 import utime, time
 from machine import I2C, Pin, UART
 from math import sqrt, atan2, pi, copysign, sin, cos
-from imu import MPU6050
+#from mpu9250 import MPU9250
 
 
-# ---------------- Variable Decleration ------------------
+# ---------------- Variable Decleration ------------------ ��
 g_my_latitude = 0.0
 g_my_longitude = 0.0
 g_my_altitude = 0.0
+g_pot_ra = 0.0
+g_pot_dec = 0.0
+g_pot_alt = 0.0
+g_pot_az = 0.0
+g_scope_ra = None
+g_scope_dec = None
 g_scope_altitude = None
+g_precise_RA_DEC = None
+
 
 # ---------------- Async: Read Serial Data from NEO-7M GPS ------------------
 async def read_gps():
@@ -83,12 +91,90 @@ async def read_gps():
             await asyncio.sleep_ms(250)
         await asyncio.sleep_ms(250)
 
+
 # ---------------- Async: Read Data from IMU ------------------
+async def read_pot_ra():
+
+    global g_pot_ra
+    Potmeter = 0.0
+    confidence_val = 0.1
+    POT = machine.ADC(26)  #setup analog reading on ADC
+
+    while True:
+            Potmeter = confidence_val*POT.read_u16()+(1-confidence_val)*Potmeter
+            g_pot_ra = Potmeter
+            #print("Right Ascension:", Potmeter)
+            await asyncio.sleep(0.05)        
+
+
+async def read_pot_dec():
+
+    global g_pot_dec
+    Potmeter = 0.0
+    confidence_val = 0.1
+    POT = machine.ADC(27)  #setup analog reading on ADC
+
+    while True:
+            Potmeter = confidence_val*POT.read_u16()+(1-confidence_val)*Potmeter
+            g_pot_dec = Potmeter
+            #print("Declination:", Potmeter)
+            await asyncio.sleep(0.05) 
+        
+
 async def read_imu():
 
-    global g_scope_altitude
-    i2c = I2C(0, sda=Pin(20), scl=Pin(21), freq=400000)    
-    mpu = MPU6050(i2c)
+    global g_scope_ra, g_scope_dec, g_precise_RA_DEC
+
+    while True:
+        #print(int(g_pot_ra))
+        right_ascension_hex = ('%06s' % (hex(int(g_pot_ra*100))[2:])) # add precision by multiplying with 100 and cut off 0x
+        #print(int(g_pot_dec))
+        declination_hex = ('%06s' % (hex(int(g_pot_dec*100))[2:])) # add precision by multiplying with 100 and cut off 0x
+        #print("RA_DEC: ", right_ascension_hex, declination_hex)
+        g_precise_RA_DEC = str(right_ascension_hex+'00'+','+declination_hex+'00'+'#')
+        """ra_hours, ra_minsec = divmod(g_pot_ra, 1)
+        ra_hour_str = str('%02d' % int(ra_hours))
+        ra_decimal = ra_minsec*60
+        ra_min, ra_seconds = divmod(ra_decimal, 1)
+        ra_min_str = str('%02d' % int(ra_min))
+        ra_sec = ra_seconds*60
+        ra_sec_str = str('%02d' % int(ra_sec))
+        g_scope_ra = ('#'+ra_hour_str+':'+ra_min_str+':'+ra_sec_str+'#')
+
+        dec_degrees, dec_minsec = divmod(g_pot_dec, 1)
+        if g_my_latitude < 0:
+            dec_degrees = -1*dec_degrees
+        else:
+            dec_degrees = dec_degrees
+        dec_degrees_str = str('%03d' % int(dec_degrees))
+        dec_decimal = dec_minsec*60
+        dec_min, dec_seconds = divmod(dec_decimal, 1)
+        dec_min_str = str('%02d' % int(dec_min))
+        dec_sec = dec_seconds*60
+        dec_sec_str = str('%02d' % int(dec_sec))
+
+        g_scope_dec = ('#'+dec_degrees_str+'*'+dec_min_str+':'+dec_sec_str+'#')"""
+        await asyncio.sleep(0.1)
+
+    """global g_scope_altitude, g_precise_RA_DEC
+    MPU = 0x68
+    id = 0
+    sda = Pin(20)
+    scl = Pin(21)
+
+    #i2c = I2C(sda=Pin(20), scl=Pin(21), freq=400000)
+    i2c = I2C(id=id, scl=scl, sda=sda, freq=400000)    
+    print(i2c.scan())
+    mpu = MPU9250(i2c)
+
+    # Calibration and bias offset
+    mpu.ak8963.calibrate(count=200)
+    pitch_bias = 0.0
+    roll_bias = 0.0
+
+    # For low pass filtering
+    #filtered_x_value = 0.0 
+    #filtered_y_value = 0.0
 
     Atan = 0
     Confidence_Val = 0.1
@@ -116,25 +202,21 @@ async def read_imu():
         zRad = math.asin(zAccel)
         zDeg = zRad/(2*math.pi)*360
         Atan = Confidence_Val*math.atan2(zAccel,yAccel)+(1-Confidence_Val)*Atan
-        if g_my_latitude < 0: # Correction for Southern hemisphere
-            AtanDeg = -1*Atan/2/math.pi*360
+        #Dec = math.asin(math.sin(g_my_latitude/360*2*math.pi)*math.sin(Atan)+math.cos((g_my_latitude/360*2*math.pi))*math.cos(Atan)*math.cos(math.pi))
+        #declination = int(Dec/(2*math.pi)*65536)
+        
+        if declination < 0:
+            declination = 0
         else:
-            AtanDeg = Atan/2/math.pi*360
-        #print("xAccel: ",xAccel ," G", "yAccel: ",yAccel ," G", "zAccel: ",zAccel ," G")
-        #print("Altitude ", AtanDeg, " Deg")
-        degrees, minsec = divmod(AtanDeg, 1)
-        degrees_str = str('%02d' % int(degrees))
-        decimal_deg = minsec*60
-        deg_min, seconds = divmod(decimal_deg, 1)
-        deg_min_str = str('%02d' % int(deg_min))
-        deg_sec = seconds*60
-        deg_sec_str = str('%02d' % int(deg_sec))
-        g_scope_altitude = (degrees_str+'"'+deg_min_str+':'+deg_sec_str+'#')
-        #print(degrees_str, deg_min_str, deg_sec_str)
-        #print(g_scope_altitude)
-        await asyncio.sleep_ms(100)
-
-
+            pass
+        if g_my_latitude < 0: # Correction for Southern hemisphere
+            declination = declination+32768
+        else:
+            pass
+        #hex_declination = ('%06s' % (hex(declination*100)[2:])) # add precision by multiplying with 100 and cut off 0x
+        #print("declination: ",declination, hex_declination)
+        #g_precise_RA_DEC = ('34AB0500'+','+hex_declination+'00#') 
+        await asyncio.sleep_ms(50)"""
 
 # ---------------- Async: Serial Data from/to Stellarium ------------------
 async def readwrite_stellarium():
@@ -142,21 +224,33 @@ async def readwrite_stellarium():
     stellarium_uart = UART(0, baudrate=9600, tx=Pin(0), rx=Pin(1))
     stellarium_uart.init(bits=8, parity=None, stop=1)
     print(stellarium_uart)
-    RA = '19:50:57#'
-    #DEC = '-45"58:14#'
+    #LX200 format does not work for micropython due to special character used
+    #RA = '19:50:57'
+    #DEC = '-25:50:14'
+    #RA = '19:50:57#'
+    #DEC = '-25*58:14'
+    #DEC = '-25ß58:14'
+
+
+    #NexStar format
+    #e = '34AB0500,12CE0500#'
     LX200_command = None
 
     while True:
         if stellarium_uart.any(): 
             LX200_command = stellarium_uart.read()
             print(LX200_command)
-            try:                
+            """try:                
                 if LX200_command == b'#:GR#':
-                    print(RA)
-                    stellarium_uart.write(RA)
-                elif LX200_command == b"#:GD#":
-                    print(g_scope_altitude)
-                    stellarium_uart.write(g_scope_altitude)
+                    print(g_scope_ra)
+                    stellarium_uart.write(g_scope_ra)
+                elif LX200_command == b'#:GD#':
+                    print(g_scope_dec)
+                    stellarium_uart.write(g_scope_dec)"""
+            try:
+                if LX200_command == b'e':
+                    print(g_precise_RA_DEC)
+                    stellarium_uart.write(g_precise_RA_DEC)    
                 else:
                     pass
             except:
@@ -167,13 +261,15 @@ async def readwrite_stellarium():
 # ---------------- Main Program Loop ------------------
 async def main():
     asyncio.create_task(read_gps())
+    asyncio.create_task(read_pot_ra())
+    asyncio.create_task(read_pot_dec())
     asyncio.create_task(read_imu())
     asyncio.create_task(readwrite_stellarium())
     
     while True:
         try:
             if True:
-                print("Main program running")
+                #print("Main program running")
                 await asyncio.sleep_ms(1000)   # Sleep for 1 seconds
         except OSError as e:
             print('Main error')
