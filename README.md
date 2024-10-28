@@ -1,10 +1,10 @@
-Introduction
+Introduction:
 This readme describes the (attempts) to convert a table top Dobsonian telescope to a Newtonian telescope including guidance via Stellarium.
 Equatorial mounts have a preference for most astronomers as it compensates for the (tilted) earth rotation axis so that tracking and astro photography are possible.
 Of course you can buy an equatorial mount which will give you all the possibilities for serious stargazing.
 For me it is an interesting project which involves both theoretical and practical parts which makes it fun for me to learn new stuff.
 
-Initiation of the project
+Initiation of the project:
 As I received a donated broken Dobsonian which I was able to repair, I quickly understood that finding and "tracking" objects via this table top Dobsonian is not very easy.
 Looking at the moon is okay but other object quickly pose a challenge.
 I looked at a step by step approach on how I could improve the capabilities of the telescope.
