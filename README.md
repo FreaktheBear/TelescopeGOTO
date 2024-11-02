@@ -12,3 +12,5 @@ I did my research on the web and there are numerous DIY projects of people who a
 After trying out different software I decided to start first with a "push to" solution based on a Raspberry Pi Pico interfacing with a Raspberry Pi 4B which runs Stellarium.
 The intent of the Pi Pico is to measure Right Ascension and Declination which is send to the RPI4B over serial UART using the telescope control plugin of Stellarium.
 If that would work then I would try to fully automate the Dobsonian mount to a GOTO mount with steppermotors.
+
+Note: Pico UART PINs 16 and 17 caused jitter with driving the A4988 stepper driver. Changed to pins 10 and 11 to drive the motor and fast steps were possible.
