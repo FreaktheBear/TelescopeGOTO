@@ -4,21 +4,25 @@ import machine
 import math
 import utime, time
 from machine import I2C, Pin, UART
-from math import sqrt, atan2, pi, copysign, sin, cos
+from imu import MPU6050
+from stepper import Stepper
 #from mpu9250 import MPU9250
 
 
-# ---------------- Variable Decleration ------------------ ��
+
+# ---------------- Global Variable Declaration ------------------ ��
 g_my_latitude = 0.0
 g_my_longitude = 0.0
 g_my_altitude = 0.0
-g_pot_ra = 0.0
-g_pot_dec = 0.0
-g_pot_alt = 0.0
-g_pot_az = 0.0
-g_scope_ra = None
-g_scope_dec = None
-g_scope_altitude = None
+g_ra_init = 0.0
+g_dec_init = 0.0
+g_rightascension = 0.0
+g_declination = 0.0
+#g_pot_alt = 0.0
+#g_pot_az = 0.0
+g_scope_RA = None
+g_scope_DEC = None
+g_scope_ALT = None
 g_precise_RA_DEC = None
 
 
@@ -88,135 +92,258 @@ async def read_gps():
                 else:
                     print('No GPS fix')
             
-            await asyncio.sleep_ms(250)
-        await asyncio.sleep_ms(250)
+            await asyncio.sleep(0.25)
+        await asyncio.sleep(0.25)
 
 
-# ---------------- Async: Read Data from IMU ------------------
-async def read_pot_ra():
+# ---------------- Async: Read Right Ascension and Declination Data from IMU ------------------
+async def read_radec():
+    i2c = I2C(0, sda=Pin(20), scl=Pin(21), freq = 400000)
+    mpu = MPU6050(i2c)
 
-    global g_pot_ra
-    Potmeter = 0.0
-    confidence_val = 0.1
-    POT = machine.ADC(26)  #setup analog reading on ADC
-
-    while True:
-            Potmeter = confidence_val*POT.read_u16()+(1-confidence_val)*Potmeter
-            g_pot_ra = Potmeter
-            #print("Right Ascension:", Potmeter)
-            await asyncio.sleep(0.05)        
-
-
-async def read_pot_dec():
-
-    global g_pot_dec
-    Potmeter = 0.0
-    confidence_val = 0.1
-    POT = machine.ADC(27)  #setup analog reading on ADC
+    global g_rightascension, g_declination
+    xGyro = 0
+    yGyro = 0
+    xRad = 0
+    yRad = 0
+    xDeg = 0
+    yDeg = 0
+    xDeg_comp = 0
+    yDeg_comp = 0
+    errorX = 0
+    errorY = 0
+    tLoop = 0
 
     while True:
-            Potmeter = confidence_val*POT.read_u16()+(1-confidence_val)*Potmeter
-            g_pot_dec = Potmeter
-            #print("Declination:", Potmeter)
-            await asyncio.sleep(0.05) 
-        
+        tStart=time.ticks_ms()
 
-async def read_imu():
+        xGyro=mpu.gyro.x
 
-    global g_scope_ra, g_scope_dec, g_precise_RA_DEC
-
-    while True:
-        #print(int(g_pot_ra))
-        right_ascension_hex = ('%06s' % (hex(int(g_pot_ra*100))[2:])) # add precision by multiplying with 100 and cut off 0x
-        #print(int(g_pot_dec))
-        declination_hex = ('%06s' % (hex(int(g_pot_dec*100))[2:])) # add precision by multiplying with 100 and cut off 0x
-        #print("RA_DEC: ", right_ascension_hex, declination_hex)
-        g_precise_RA_DEC = str(right_ascension_hex+'00'+','+declination_hex+'00'+'#')
-        """ra_hours, ra_minsec = divmod(g_pot_ra, 1)
-        ra_hour_str = str('%02d' % int(ra_hours))
-        ra_decimal = ra_minsec*60
-        ra_min, ra_seconds = divmod(ra_decimal, 1)
-        ra_min_str = str('%02d' % int(ra_min))
-        ra_sec = ra_seconds*60
-        ra_sec_str = str('%02d' % int(ra_sec))
-        g_scope_ra = ('#'+ra_hour_str+':'+ra_min_str+':'+ra_sec_str+'#')
-
-        dec_degrees, dec_minsec = divmod(g_pot_dec, 1)
-        if g_my_latitude < 0:
-            dec_degrees = -1*dec_degrees
-        else:
-            dec_degrees = dec_degrees
-        dec_degrees_str = str('%03d' % int(dec_degrees))
-        dec_decimal = dec_minsec*60
-        dec_min, dec_seconds = divmod(dec_decimal, 1)
-        dec_min_str = str('%02d' % int(dec_min))
-        dec_sec = dec_seconds*60
-        dec_sec_str = str('%02d' % int(dec_sec))
-
-        g_scope_dec = ('#'+dec_degrees_str+'*'+dec_min_str+':'+dec_sec_str+'#')"""
-        await asyncio.sleep(0.1)
-
-    """global g_scope_altitude, g_precise_RA_DEC
-    MPU = 0x68
-    id = 0
-    sda = Pin(20)
-    scl = Pin(21)
-
-    #i2c = I2C(sda=Pin(20), scl=Pin(21), freq=400000)
-    i2c = I2C(id=id, scl=scl, sda=sda, freq=400000)    
-    print(i2c.scan())
-    mpu = MPU9250(i2c)
-
-    # Calibration and bias offset
-    mpu.ak8963.calibrate(count=200)
-    pitch_bias = 0.0
-    roll_bias = 0.0
-
-    # For low pass filtering
-    #filtered_x_value = 0.0 
-    #filtered_y_value = 0.0
-
-    Atan = 0
-    Confidence_Val = 0.1
-
-    while True:
         xAccel = mpu.accel.x
         if xAccel > 1:
             xAccel = 1
         elif xAccel < -1:
             xAccel = -1
+        xRad = math.asin(xAccel)
+        xDeg = xRad/(2*math.pi)*360      
+        xDeg_comp = xDeg*.50 + .50*(xDeg_comp+xGyro*tLoop)+errorX*.01
+        
+        errorX = errorX + (xDeg-xDeg_comp)*tLoop
+
+        yGyro=mpu.gyro.y
+
         yAccel = mpu.accel.y
         if yAccel > 1:
             yAccel = 1
         elif yAccel < -1:
             yAccel = -1
-        zAccel = mpu.accel.z
-        if zAccel > 1:
-            zAccel = 1
-        elif zAccel < -1:
-            zAccel = -1
-        xRad = math.acos(xAccel)
-        xDeg = xRad/(2*math.pi)*360
-        yRad = math.acos(yAccel)
-        yDeg = yRad/(2*math.pi)*360
-        zRad = math.asin(zAccel)
-        zDeg = zRad/(2*math.pi)*360
-        Atan = Confidence_Val*math.atan2(zAccel,yAccel)+(1-Confidence_Val)*Atan
-        #Dec = math.asin(math.sin(g_my_latitude/360*2*math.pi)*math.sin(Atan)+math.cos((g_my_latitude/360*2*math.pi))*math.cos(Atan)*math.cos(math.pi))
-        #declination = int(Dec/(2*math.pi)*65536)
+        yRad = math.asin(yAccel)
+        yDeg = yRad/(2*math.pi)*360      
+        yDeg_comp = yDeg*.50 + .50*(yDeg_comp+yGyro*tLoop)+errorY*.01
         
-        if declination < 0:
-            declination = 0
-        else:
-            pass
-        if g_my_latitude < 0: # Correction for Southern hemisphere
-            declination = declination+32768
-        else:
-            pass
-        #hex_declination = ('%06s' % (hex(declination*100)[2:])) # add precision by multiplying with 100 and cut off 0x
-        #print("declination: ",declination, hex_declination)
-        #g_precise_RA_DEC = ('34AB0500'+','+hex_declination+'00#') 
-        await asyncio.sleep_ms(50)"""
+        errorY = errorY + (yDeg-yDeg_comp)*tLoop        
+
+        g_ra_init = xDeg_comp
+        g_dec_init = yDeg_comp
+        
+        tStop=time.ticks_ms()
+        tLoop=(tStop-tStart)*.001
+        await asyncio.sleep(0.0001)        
+
+
+# ---------------- Async: GOTO RA Init possition ------------------
+async def goto_init():
+
+    motorRA = Stepper(0, 10, 11)
+    step16RA = Pin(12, Pin.OUT, value=False)               # GPIO12 Digital Output
+
+    speed_motRA = 0
+    Degslowdownplus = 10
+    Degslowdownminus = -10
+    init_RA_clockwise = False
+    init_RA_anticlockwise = False
+    initstep1_RA = False
+    initstep2_RA = False
+    initstep3_RA = False
+    initstep4_RA = False
+    init_RA_finished = False
+
+    motorDEC = Stepper(1, 14, 15)
+    step16DEC = Pin(13, Pin.OUT, value=False)              # GPIO13 Digital Output
+
+    speed_motDEC = 0
+    Degslowdownplus = 10
+    Degslowdownminus = -10
+    init_DEC_clockwise = False
+    init_DEC_anticlockwise = False
+    initstep1_DEC = False
+    initstep2_DEC = False
+    initstep3_DEC = False
+    initstep4_DEC = False
+    init_DEC_finished = False
+
+    # ------------------ RA Goto Init Position Clock Wise ------------------ #
+    while True:
+        rightascension = g_ra_init
+        if rightascension > 0 and init_RA_anticlockwise == False and init_RA_finished == False:
+            init_RA_clockwise = True
+            init_RA_anticlockwise = False
+            if rightascension > Degslowdownplus and 0 <= speed_motRA < 50 and initstep2_RA == False and init_RA_clockwise == True:
+                initstep1_RA = True
+                step16RA.value(False)
+                #print("initstep1_RA clockwise", initstep1_RA)
+                speed_motRA = speed_motRA +5
+                motorRA.set_steps_per_second(speed_motRA)
+            elif rightascension > Degslowdownplus and speed_motRA >= 50 and initstep3_RA == False and init_RA_clockwise == True:
+                initstep2_RA = True
+                step16RA.value(False)
+                #print("initstep2_RA clockwise", initstep2_RA)
+                speed_motRA = 50
+                motorRA.set_steps_per_second(speed_motRA)
+            elif Degslowdownplus >= rightascension > 0 and speed_motRA >= 10 and initstep4_RA == False and init_RA_clockwise == True:
+                initstep3_RA = True
+                step16RA.value(False)
+                #print("initstep3_RA clockwise", initstep3_RA)
+                speed_motRA = speed_motRA -5
+                motorRA.set_steps_per_second(speed_motRA)
+            elif Degslowdownplus > rightascension > 0 and speed_motRA < 10 and init_RA_finished == False and init_RA_clockwise == True:
+                initstep4_RA = True
+                step16RA.value(True)
+                #print("initstep4_RA clockwise", initstep4_RA)
+                speed_motRA = 10
+                motorRA.set_steps_per_second(speed_motRA)
+        elif rightascension < 0 and init_RA_clockwise == True:
+            init_RA_finished = True
+            step16RA.value(False)
+            speed_motRA = 0
+            motorRA.set_steps_per_second(speed_motRA)
+            #print("init_RA_finished clockwise", init_RA_finished)
+
+        # ------------------ RA Goto Init Position Anti Clock Wise ------------------ #
+        if rightascension < 0 and init_RA_clockwise == False and init_RA_finished == False:
+            init_RA_anticlockwise = True
+            init_RA_clockwise = False
+            if rightascension < Degslowdownminus and 0 >= speed_motRA > -50 and initstep2_RA == False and init_RA_anticlockwise == True:
+                initstep1_RA = True
+                step16RA.value(False)
+                #print("initstep1_RA anticlockwise", initstep1_RA)
+                speed_motRA = speed_motRA -5
+                motorRA.set_steps_per_second(speed_motRA)
+            elif rightascension < Degslowdownminus and speed_motRA <= -50 and initstep3_RA == False and init_RA_anticlockwise == True:
+                initstep2_RA = True
+                step16RA.value(False)
+                #print("initstep2_RA anticlockwise", initstep2_RA)
+                speed_motRA = -50
+                motorRA.set_steps_per_second(speed_motRA)
+            elif Degslowdownminus <= rightascension < 0 and speed_motRA <= -10 and initstep4_RA == False and init_RA_anticlockwise == True:
+                initstep3_RA = True
+                step16RA.value(False)
+                #print("initstep3_RA anticlockwise", initstep3_RA)
+                speed_motRA = speed_motRA +5
+                motorRA.set_steps_per_second(speed_motRA)
+            elif Degslowdownminus < rightascension < 0 and speed_motRA > -10 and init_RA_finished == False and init_RA_anticlockwise == True:
+                initstep4_RA = True
+                step16RA.value(True)
+                #print("initstep4_RA anticlockwise", initstep4_RA)
+                speed_motRA = -10
+                motorRA.set_steps_per_second(speed_motRA)
+        elif rightascension > 0 and init_RA_anticlockwise == True:
+            init_RA_finished = True
+            step16RA.value(False)
+            speed_motRA = 0
+            motorRA.set_steps_per_second(speed_motRA)
+            #print("init_RA_finished anticlockwise", init_RA_finished)
+
+
+    # ------------------ DEC Goto Init Position Clock Wise ------------------ #
+        declination = g_dec_init
+        if declination < 0 and init_DEC_anticlockwise == False and init_RA_finished == True and init_DEC_finished == False:
+            init_DEC_clockwise = True
+            init_DEC_anticlockwise = False
+            if declination < Degslowdownminus and 0 <= speed_motDEC < 50 and initstep2_DEC == False and init_DEC_clockwise == True:
+                initstep1_DEC = True
+                step16DEC.value(False)
+                #print("initstep1_DEC clockwise", initstep1_DEC)
+                speed_motDEC = speed_motDEC +5
+                motorDEC.set_steps_per_second(speed_motDEC)
+            elif declination < Degslowdownminus and speed_motDEC >= 50 and initstep3_DEC == False and init_DEC_clockwise == True:
+                initstep2_DEC = True
+                step16DEC.value(False)
+                #print("initstep2_DEC clockwise", initstep2_DEC)
+                speed_motDEC = 50
+                motorDEC.set_steps_per_second(speed_motDEC)
+            elif Degslowdownminus <= declination < 0 and speed_motDEC >= 10 and initstep4_DEC == False and init_DEC_clockwise == True:
+                initstep3_DEC = True
+                step16DEC.value(False)
+                #print("initstep3_DEC clockwise", initstep3_DEC)
+                speed_motDEC = speed_motDEC -5
+                motorDEC.set_steps_per_second(speed_motDEC)
+            elif Degslowdownminus < declination < 0 and speed_motDEC < 10 and init_DEC_finished == False and init_DEC_clockwise == True:
+                initstep4_DEC = True
+                step16DEC.value(True)
+                #print("initstep4_DEC clockwise", initstep4_DEC)
+                speed_motDEC = 10
+                motorDEC.set_steps_per_second(speed_motDEC)
+        elif declination > 0 and init_DEC_clockwise == True:
+            init_DEC_finished = True
+            step16DEC.value(False)
+            speed_motDEC = 0
+            motorDEC.set_steps_per_second(speed_motDEC)
+            print("init_DEC_finished clockwise", init_DEC_finished)
+            print("rightascension", rightascension)
+            print("declination", declination)
+            break
+            
+    # ------------------ DEC Goto Init Position Anti Clock Wise ------------------ #
+        if declination > 0 and init_DEC_clockwise == False and init_RA_finished == True and init_DEC_finished == False:
+            init_DEC_anticlockwise = True
+            init_DEC_clockwise = False
+            if declination > Degslowdownplus and 0 >= speed_motDEC > -50 and initstep2_DEC == False and init_DEC_anticlockwise == True:
+                initstep1_DEC = True
+                step16DEC.value(False)
+                #print("initstep1_DEC anticlockwise", initstep1_DEC)
+                speed_motDEC = speed_motDEC -5
+                motorDEC.set_steps_per_second(speed_motDEC)
+            elif declination > Degslowdownplus and speed_motDEC <= -50 and initstep3_DEC == False and init_DEC_anticlockwise == True:
+                initstep2_DEC = True
+                step16DEC.value(False)
+                #print("initstep2_DEC anticlockwise", initstep2_DEC)
+                speed_motDEC = -50
+                motorDEC.set_steps_per_second(speed_motDEC)
+            elif Degslowdownplus >= declination > 0 and speed_motDEC <= -10 and initstep4_DEC == False and init_DEC_anticlockwise == True:
+                initstep3_DEC = True
+                step16DEC.value(False)
+                #print("initstep3_DEC anticlockwise", initstep3_DEC)
+                speed_motDEC = speed_motDEC +5
+                motorDEC.set_steps_per_second(speed_motDEC)
+            elif Degslowdownplus > declination > 0 and speed_motDEC > -10 and init_DEC_finished == False and init_DEC_anticlockwise == True:
+                initstep4_DEC = True
+                step16DEC.value(True)
+                #print("initstep4_DEC anticlockwise", initstep4_DEC)
+                speed_motDEC = -10
+                motorDEC.set_steps_per_second(speed_motDEC)
+        elif declination < 0 and init_DEC_anticlockwise == True:
+            init_DEC_finished = True
+            step16DEC.value(False)
+            speed_motDEC = 0
+            motorDEC.set_steps_per_second(speed_motDEC)
+            print("init_DEC_finished anticlockwise", init_DEC_finished)
+            print("rightascension", rightascension)
+            print("declination", declination)
+            break
+        await asyncio.sleep(0.1)
+
+# ---------------- Async: Set Altitude Correction ------------------
+async def alt_correction():
+    altitude = 0
+
+    while True:    
+        altitude = g_declination + g_my_latitude
+        print("altitude correction", altitude)
+
+            
+        await asyncio.sleep(1)
+
 
 # ---------------- Async: Serial Data from/to Stellarium ------------------
 async def readwrite_stellarium():
@@ -233,47 +360,41 @@ async def readwrite_stellarium():
 
 
     #NexStar format
-    #e = '34AB0500,12CE0500#'
-    LX200_command = None
+    e = '34AB0500,12CE0500#'
+    NextStar_cmd = None
 
     while True:
         if stellarium_uart.any(): 
-            LX200_command = stellarium_uart.read()
-            print(LX200_command)
-            """try:                
-                if LX200_command == b'#:GR#':
-                    print(g_scope_ra)
-                    stellarium_uart.write(g_scope_ra)
-                elif LX200_command == b'#:GD#':
-                    print(g_scope_dec)
-                    stellarium_uart.write(g_scope_dec)"""
+            NextStar_cmd = stellarium_uart.read()
+            print(NextStar_cmd)
             try:
-                if LX200_command == b'e':
-                    print(g_precise_RA_DEC)
-                    stellarium_uart.write(g_precise_RA_DEC)    
+                if NextStar_cmd == b'e':
+                    print(e)
+                    stellarium_uart.write(e)    
                 else:
                     pass
             except:
                 pass
-        await asyncio.sleep_ms(250)
+        await asyncio.sleep(0.25)
 
 
 # ---------------- Main Program Loop ------------------
 async def main():
     asyncio.create_task(read_gps())
-    asyncio.create_task(read_pot_ra())
-    asyncio.create_task(read_pot_dec())
-    asyncio.create_task(read_imu())
+    asyncio.create_task(read_radec())
+    asyncio.create_task(goto_init())
+    asyncio.create_task(alt_correction())
     asyncio.create_task(readwrite_stellarium())
+    #asyncio.create_task(write_ra_stepper())
     
     while True:
         try:
             if True:
                 #print("Main program running")
-                await asyncio.sleep_ms(1000)   # Sleep for 1 seconds
+                await asyncio.sleep(1)   # Sleep for 1 seconds
         except OSError as e:
             print('Main error')
-        await asyncio.sleep_ms(100)   # Sleep for 0.1 seconds
+        await asyncio.sleep(0.1)   # Sleep for 0.1 seconds
 
 try:
     asyncio.run(main())  # Run the main asynchronous function
