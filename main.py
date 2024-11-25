@@ -1,4 +1,5 @@
 import asyncio
+import binascii
 import os
 import machine
 import math
@@ -121,7 +122,7 @@ async def read_radec():
         zGyroRA= mpu_ra.gyro.z
         
         rightascensionA= math.atan2(yAccelRA,zAccelRA)/2/math.pi*360 + 180
-        rightascensionComp= rightascensionA*.50 + .50*(rightascensionComp+yGyroRA*tLoop)+errorRA*.01 
+        rightascensionComp= rightascensionA*.30 + .70*(rightascensionComp+yGyroRA*tLoop)+errorRA*.01 
         errorRA=errorRA + (rightascensionA-rightascensionComp)*tLoop
 
         yAccelDEC= mpu_dec.accel.y
@@ -130,15 +131,15 @@ async def read_radec():
         zGyroDEC= mpu_dec.gyro.z
 
         declinationA= math.atan2(yAccelDEC,zAccelDEC)/2/math.pi*360 + 180
-        declinationComp= declinationA*.50 + .50*(declinationComp+yGyroDEC*tLoop)+errorDEC*.01 
+        declinationComp= declinationA*.30 + .70*(declinationComp+yGyroDEC*tLoop)+errorDEC*.01 
         errorDEC=errorDEC + (declinationA-declinationComp)*tLoop
 
         ra_init = int(rightascensionComp/360*65536*100)            # *100 for adding extra precision
         dec_init = int((abs(360 - declinationComp))/360*65536*100) # *100 for adding extra precision
 
         ra_init_hex = hex(ra_init)
-        ra_init_hex = ra_init_hex[2:]
-        ra_init_hex = ('000000' + ra_init_hex)[-6:]
+        ra_init_hex = ra_init_hex[2:] # strip 0x from string
+        ra_init_hex = ('000000' + ra_init_hex)[-6:] # add leading zero's for 6 chars
 
         dec_init_hex = hex(dec_init)
         dec_init_hex = dec_init_hex[2:]
@@ -153,7 +154,7 @@ async def read_radec():
         await asyncio.sleep(0.0001)        
 
 
-# ---------------- Async: GOTO RA Init possition ------------------
+# ---------------- Async: GOTO possition ------------------
 async def goto_init():
     global g_init_finished
     motorRA = Stepper(0, 10, 11)
@@ -193,17 +194,17 @@ async def goto_init():
             #print("rightascension", rightascension)
             init_RA_clockwise = True
             init_RA_anticlockwise = False
-            if rightascension > slowdownplus and 0 <= speed_motRA < 50 and initstep2_RA == False and init_RA_clockwise == True:
+            if rightascension > slowdownplus and 0 <= speed_motRA < 20 and initstep2_RA == False and init_RA_clockwise == True:
                 initstep1_RA = True
                 step16RA.value(False)
                 #print("initstep1_RA clockwise", initstep1_RA)
                 speed_motRA = speed_motRA +5
                 motorRA.set_steps_per_second(speed_motRA)
-            elif rightascension > slowdownplus and speed_motRA >= 50 and initstep3_RA == False and init_RA_clockwise == True:
+            elif rightascension > slowdownplus and speed_motRA >= 20 and initstep3_RA == False and init_RA_clockwise == True:
                 initstep2_RA = True
                 step16RA.value(False)
                 #print("initstep2_RA clockwise", initstep2_RA)
-                speed_motRA = 50
+                speed_motRA = 20
                 motorRA.set_steps_per_second(speed_motRA)
             elif slowdownplus >= rightascension > zeropoint and speed_motRA >= 10 and initstep4_RA == False and init_RA_clockwise == True:
                 initstep3_RA = True
@@ -306,17 +307,17 @@ async def goto_init():
             #print("g_dec_init", g_dec_init)
             init_DEC_anticlockwise = True
             init_DEC_clockwise = False
-            if declination > slowdownplus and 0 >= speed_motDEC > -50 and initstep2_DEC == False and init_DEC_anticlockwise == True:
+            if declination > slowdownplus and 0 >= speed_motDEC > -20 and initstep2_DEC == False and init_DEC_anticlockwise == True:
                 initstep1_DEC = True
                 step16DEC.value(False)
                 #print("initstep1_DEC anticlockwise", initstep1_DEC)
                 speed_motDEC = speed_motDEC -5
                 motorDEC.set_steps_per_second(speed_motDEC)
-            elif declination > slowdownplus and speed_motDEC <= -50 and initstep3_DEC == False and init_DEC_anticlockwise == True:
+            elif declination > slowdownplus and speed_motDEC <= -20 and initstep3_DEC == False and init_DEC_anticlockwise == True:
                 initstep2_DEC = True
                 step16DEC.value(False)
                 #print("initstep2_DEC anticlockwise", initstep2_DEC)
-                speed_motDEC = -50
+                speed_motDEC = -20
                 motorDEC.set_steps_per_second(speed_motDEC)
             elif slowdownplus >= declination > 0 and speed_motDEC <= -10 and initstep4_DEC == False and init_DEC_anticlockwise == True:
                 initstep3_DEC = True
@@ -342,6 +343,162 @@ async def goto_init():
             break
         await asyncio.sleep(0.1)
 
+# -------------------------------------------------------------------------------- #
+    # ------------------ RA Goto Stellarium Position Clock Wise ------------------ #
+    """while True:
+        rightascension = g_ra_init
+        if rightascension > zeropoint and init_RA_anticlockwise == False and init_RA_finished == False:
+            #print("rightascension", rightascension)
+            init_RA_clockwise = True
+            init_RA_anticlockwise = False
+            if rightascension > slowdownplus and 0 <= speed_motRA < 20 and initstep2_RA == False and init_RA_clockwise == True:
+                initstep1_RA = True
+                step16RA.value(False)
+                #print("initstep1_RA clockwise", initstep1_RA)
+                speed_motRA = speed_motRA +5
+                motorRA.set_steps_per_second(speed_motRA)
+            elif rightascension > slowdownplus and speed_motRA >= 20 and initstep3_RA == False and init_RA_clockwise == True:
+                initstep2_RA = True
+                step16RA.value(False)
+                #print("initstep2_RA clockwise", initstep2_RA)
+                speed_motRA = 20
+                motorRA.set_steps_per_second(speed_motRA)
+            elif slowdownplus >= rightascension > zeropoint and speed_motRA >= 10 and initstep4_RA == False and init_RA_clockwise == True:
+                initstep3_RA = True
+                step16RA.value(False)
+                #print("initstep3_RA clockwise", initstep3_RA)
+                speed_motRA = speed_motRA -5
+                motorRA.set_steps_per_second(speed_motRA)
+            elif slowdownplus > rightascension > zeropoint and speed_motRA < 10 and init_RA_finished == False and init_RA_clockwise == True:
+                initstep4_RA = True
+                step16RA.value(True)
+                #print("initstep4_RA clockwise", initstep4_RA)
+                speed_motRA = 10
+                motorRA.set_steps_per_second(speed_motRA)
+        elif rightascension < zeropoint and init_RA_clockwise == True:
+            init_RA_finished = True
+            step16RA.value(False)
+            speed_motRA = 0
+            motorRA.set_steps_per_second(speed_motRA)
+            #print("init_RA_finished clockwise", init_RA_finished)
+
+        # ------------------ RA Goto Stellarium Position Anti Clock Wise ------------------ #
+        if rightascension < zeropoint and init_RA_clockwise == False and init_RA_finished == False:
+            init_RA_anticlockwise = True
+            init_RA_clockwise = False
+            if rightascension < slowdownminus and 0 >= speed_motRA > -50 and initstep2_RA == False and init_RA_anticlockwise == True:
+                initstep1_RA = True
+                step16RA.value(False)
+                #print("initstep1_RA anticlockwise", initstep1_RA)
+                speed_motRA = speed_motRA -5
+                motorRA.set_steps_per_second(speed_motRA)
+            elif rightascension < slowdownminus and speed_motRA <= -50 and initstep3_RA == False and init_RA_anticlockwise == True:
+                initstep2_RA = True
+                step16RA.value(False)
+                #print("initstep2_RA anticlockwise", initstep2_RA)
+                speed_motRA = -50
+                motorRA.set_steps_per_second(speed_motRA)
+            elif slowdownminus <= rightascension < 0 and speed_motRA <= -10 and initstep4_RA == False and init_RA_anticlockwise == True:
+                initstep3_RA = True
+                step16RA.value(False)
+                #print("initstep3_RA anticlockwise", initstep3_RA)
+                speed_motRA = speed_motRA +5
+                motorRA.set_steps_per_second(speed_motRA)
+            elif slowdownminus < rightascension < 0 and speed_motRA > -10 and init_RA_finished == False and init_RA_anticlockwise == True:
+                initstep4_RA = True
+                step16RA.value(True)
+                #print("initstep4_RA anticlockwise", initstep4_RA)
+                speed_motRA = -10
+                motorRA.set_steps_per_second(speed_motRA)
+        elif rightascension > zeropoint and init_RA_anticlockwise == True:
+            init_RA_finished = True
+            step16RA.value(False)
+            speed_motRA = 0
+            motorRA.set_steps_per_second(speed_motRA)
+            #print("init_RA_finished anticlockwise", init_RA_finished)
+
+
+    # ------------------ DEC Goto Stellarium Position Clock Wise ------------------ #
+        declination = g_dec_init
+        if declination < zeropoint and init_DEC_anticlockwise == False and init_RA_finished == True and init_DEC_finished == False:
+            init_DEC_clockwise = True
+            init_DEC_anticlockwise = False
+            if declination < slowdownminus and 0 <= speed_motDEC < 50 and initstep2_DEC == False and init_DEC_clockwise == True:
+                initstep1_DEC = True
+                step16DEC.value(False)
+                #print("initstep1_DEC clockwise", initstep1_DEC)
+                speed_motDEC = speed_motDEC +5
+                motorDEC.set_steps_per_second(speed_motDEC)
+            elif declination < slowdownminus and speed_motDEC >= 50 and initstep3_DEC == False and init_DEC_clockwise == True:
+                initstep2_DEC = True
+                step16DEC.value(False)
+                #print("initstep2_DEC clockwise", initstep2_DEC)
+                speed_motDEC = 50
+                motorDEC.set_steps_per_second(speed_motDEC)
+            elif slowdownminus <= declination < 0 and speed_motDEC >= 10 and initstep4_DEC == False and init_DEC_clockwise == True:
+                initstep3_DEC = True
+                step16DEC.value(False)
+                #print("initstep3_DEC clockwise", initstep3_DEC)
+                speed_motDEC = speed_motDEC -5
+                motorDEC.set_steps_per_second(speed_motDEC)
+            elif slowdownminus < declination < 0 and speed_motDEC < 10 and init_DEC_finished == False and init_DEC_clockwise == True:
+                initstep4_DEC = True
+                step16DEC.value(True)
+                #print("initstep4_DEC clockwise", initstep4_DEC)
+                speed_motDEC = 10
+                motorDEC.set_steps_per_second(speed_motDEC)
+        elif declination > zeropoint and init_DEC_clockwise == True:
+            init_DEC_finished = True
+            g_init_finished = True
+            step16DEC.value(False)
+            speed_motDEC = 0
+            motorDEC.set_steps_per_second(speed_motDEC)
+            print("init_DEC_finished clockwise", init_DEC_finished)
+            print("g_ra_init", g_ra_init)
+            print("g_dec_init", g_dec_init)
+            
+            
+    # ------------------ DEC Goto Stellarium Position Anti Clock Wise ------------------ #
+        declination = g_dec_init
+        if declination > zeropoint and init_DEC_clockwise == False and init_RA_finished == True and init_DEC_finished == False:
+            #print("g_dec_init", g_dec_init)
+            init_DEC_anticlockwise = True
+            init_DEC_clockwise = False
+            if declination > slowdownplus and 0 >= speed_motDEC > -20 and initstep2_DEC == False and init_DEC_anticlockwise == True:
+                initstep1_DEC = True
+                step16DEC.value(False)
+                #print("initstep1_DEC anticlockwise", initstep1_DEC)
+                speed_motDEC = speed_motDEC -5
+                motorDEC.set_steps_per_second(speed_motDEC)
+            elif declination > slowdownplus and speed_motDEC <= -20 and initstep3_DEC == False and init_DEC_anticlockwise == True:
+                initstep2_DEC = True
+                step16DEC.value(False)
+                #print("initstep2_DEC anticlockwise", initstep2_DEC)
+                speed_motDEC = -20
+                motorDEC.set_steps_per_second(speed_motDEC)
+            elif slowdownplus >= declination > 0 and speed_motDEC <= -10 and initstep4_DEC == False and init_DEC_anticlockwise == True:
+                initstep3_DEC = True
+                step16DEC.value(False)
+                #print("initstep3_DEC anticlockwise", initstep3_DEC)
+                speed_motDEC = speed_motDEC +5
+                motorDEC.set_steps_per_second(speed_motDEC)
+            elif slowdownplus > declination > 0 and speed_motDEC > -10 and init_DEC_finished == False and init_DEC_anticlockwise == True:
+                initstep4_DEC = True
+                step16DEC.value(True)
+                #print("initstep4_DEC anticlockwise", initstep4_DEC)
+                speed_motDEC = -10
+                motorDEC.set_steps_per_second(speed_motDEC)
+        elif declination < zeropoint and init_DEC_anticlockwise == True:
+            init_DEC_finished = True
+            g_init_finished = True
+            step16DEC.value(False)
+            speed_motDEC = 0
+            motorDEC.set_steps_per_second(speed_motDEC)
+            print("init_DEC_finished anticlockwise", init_DEC_finished)
+            print("g_ra_init", g_ra_init)
+            print("g_dec_init", g_dec_init)
+        await asyncio.sleep(0.1)"""
+
 # ---------------- Async: Set Altitude Correction ------------------
 async def alt_correction():
     global g_scope_RA, g_scope_DEC, g_scope_init
@@ -349,10 +506,10 @@ async def alt_correction():
     
     while True:    
         altitude = float(g_dec_init)/100/65536*360 + g_my_latitude
-        #print("altitude", altitude)
-        #if altitude > -0.1 and g_init_finished == True:
-        #    g_scope_init = True
-        #    break
+        print("altitude", altitude)
+        if altitude > -0.1 and g_init_finished == True:
+            g_scope_init = True
+            break
 
         await asyncio.sleep(1)
 
@@ -363,29 +520,31 @@ async def readwrite_stellarium():
     stellarium_uart = UART(0, baudrate=9600, tx=Pin(0), rx=Pin(1))
     stellarium_uart.init(bits=8, parity=None, stop=1)
     print(stellarium_uart)
+
     #LX200 format does not work for micropython due to special character used
-    #RA = '19:50:57'
-    #DEC = '-25:50:14'
-    #RA = '19:50:57#'
-    #DEC = '-25*58:14'
-    #DEC = '-25ß58:14'
-
-
     #NexStar format
     #e = '00000000,C0000000#' #Equatorial South Pole coordinates 0, 270 degrees in Nexstar values, capital letters needed!
 
-
     NextStar_cmd = None
+    NextStar_cmdchr0 = None
 
     while True:
         e = g_precise_RA_DEC
         if stellarium_uart.any(): 
             NextStar_cmd = stellarium_uart.read()
-            print(NextStar_cmd)
+            NextStar_cmdchr0 = chr(NextStar_cmd[0])
+            print(NextStar_cmdchr0)
             try:
-                if NextStar_cmd == b'e':
+                #if NextStar_cmd == b'e':
+                if NextStar_cmdchr0 == 'e':
                     print(e)
-                    stellarium_uart.write(e)    
+                    stellarium_uart.write(e)
+                elif NextStar_cmdchr0 == 'r':
+                    print(NextStar_cmd)
+                    msg = str(NextStar_cmd, 'utf-8')
+                    print(msg)
+                    ra_int = int((str(msg[1:6])), 16) # take first 6 hex numbers and convert to int
+                    print(ra_int)
                 else:
                     pass
             except:
