@@ -132,6 +132,12 @@ async def goto_position():
     global g_precise_RA_DEC
     pushbutton = Pin(6, Pin.IN, Pin.PULL_UP)    # GPIO6 Digital Input IX0.0
 
+    int_old = 0
+    int_new = 0
+    steps = 0
+    ra_steps = 0
+    dec_steps = 0
+
     def calc_steps(int_old, int_new):
         if int_new > int_old:
             steps = round((int_new - int_old)/2**32 * 31800)               # full rev = 200 * 16 * 9.9375 = 31800
@@ -155,22 +161,21 @@ async def goto_position():
             dec_hex = dec_hex[2:]
             dec_hex = ('00000000' + dec_hex)[-8:]
             g_precise_RA_DEC = str.upper(ra_hex + ',' + dec_hex + '#')
-            #print("precise ra dec: ", g_precise_RA_DEC)
-            """ra_init = int(0/360* 2**16)                             # 0 hours, scale to 16 bit value
-            ra_init_hex = hex(ra_init)                              # times 100 for extra precision
-            ra_init_hex = ra_init_hex[2:]                           # strip 0x from string
-            ra_init_hex = ('0000' + ra_init_hex)[-4:]               # add leading zero's for 4 chars
-            dec_init = int(270/360* 2**16)
-            dec_init_hex = hex(dec_init)
-            dec_init_hex = dec_init_hex[2:]
-            dec_init_hex = ('0000' + dec_init_hex)[-4:]
-            g_precise_RA_DEC = str.upper(ra_init_hex + '0000' + ',' + dec_init_hex + '0000' + '#')"""
         elif g_scope_slew == True:
             ra_int_new = g_ra_int
             ra_steps = calc_steps(ra_int_old, ra_int_new)
             dec_int_new = g_dec_int
             dec_steps = calc_steps(dec_int_old, dec_int_new)
             ctrl.steps(ra_steps, dec_steps)
+            ra_int_old = ra_int_new
+            dec_int_old = dec_int_new
+            ra_hex = hex(ra_int_old)
+            ra_hex = ra_hex[2:]
+            ra_hex = ('00000000' + ra_hex)[-8:]
+            dec_hex = hex(dec_int_old)
+            dec_hex = dec_hex[2:]
+            dec_hex = ('00000000' + dec_hex)[-8:]
+            g_precise_RA_DEC = str.upper(ra_hex + ',' + dec_hex + '#')
         else:
             pass
         await asyncio.sleep(0.1)
