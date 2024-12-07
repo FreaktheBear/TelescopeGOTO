@@ -18,6 +18,7 @@ g_roll = 0
 g_alt_correction = False
 g_scope_sync = False
 g_scope_slew = False
+g_scope_old = False
 g_precise_RA_DEC = '00000000,00000000#'
 g_ra_int = 0
 g_dec_int = 0
@@ -116,11 +117,13 @@ async def read_pitchroll():
 # ---------------- Async: Set Altitude Correction ------------------
 async def alt_correction():
     global g_alt_correction
+    pushbutton = Pin(6, Pin.IN, Pin.PULL_UP)    # GPIO6 Digital Input IX0.0
     
     while True:    
         altitude =  -1*g_pitch + g_my_latitude
         print("altitude", altitude)
-        if altitude > 0 and g_alt_correction == False:
+        if altitude > 0 and g_alt_correction == False or pushbutton.value() != 1:
+            pushbutton.value(1)
             g_alt_correction = True
             break
         else:
@@ -130,26 +133,21 @@ async def alt_correction():
 # ---------------- Async: GOTO possition ------------------
 async def goto_position():
     global g_precise_RA_DEC
-    pushbutton = Pin(6, Pin.IN, Pin.PULL_UP)    # GPIO6 Digital Input IX0.0
 
-    int_old = 0
-    int_new = 0
-    steps = 0
-    ra_steps = 0
-    dec_steps = 0
 
     def calc_steps(int_old, int_new):
         if int_new > int_old:
             steps = round((int_new - int_old)/2**32 * 31800)               # full rev = 200 * 16 * 9.9375 = 31800
+            return steps
         elif int_new < int_old:
-            steps = round(-(int_new - int_old)/2**32 * 31800)
+            steps = round(-(int_old - int_new)/2**32 * 31800)
+            return steps
         else:
             pass
-        return steps
+
 
     while True:
-        if g_alt_correction == True and g_scope_sync == False and g_scope_slew == False: # and pushbutton.value() != 1:
-            #pushbutton.value(1)
+        if g_alt_correction == True and g_scope_sync == False and g_scope_slew == False: 
             g_precise_RA_DEC = '00000000,C0000000#'
         elif g_scope_sync == True:
             ra_int_old = g_ra_int
@@ -167,12 +165,14 @@ async def goto_position():
             dec_int_new = g_dec_int
             dec_steps = calc_steps(dec_int_old, dec_int_new)
             ctrl.steps(ra_steps, dec_steps)
-            ra_int_old = ra_int_new
-            dec_int_old = dec_int_new
-            ra_hex = hex(ra_int_old)
+            if g_scope_old == False:
+                ra_int_old = ra_int_new
+                dec_int_old = dec_int_new
+                print("g_scope_old: ", g_scope_old)
+            ra_hex = hex(ra_int_new)
             ra_hex = ra_hex[2:]
             ra_hex = ('00000000' + ra_hex)[-8:]
-            dec_hex = hex(dec_int_old)
+            dec_hex = hex(dec_int_new)
             dec_hex = dec_hex[2:]
             dec_hex = ('00000000' + dec_hex)[-8:]
             g_precise_RA_DEC = str.upper(ra_hex + ',' + dec_hex + '#')
@@ -183,7 +183,7 @@ async def goto_position():
 
 # ---------------- Async: Serial Data from/to Stellarium ------------------
 async def readwrite_stellarium():
-    global g_scope_sync, g_scope_slew, g_ra_int, g_dec_int
+    global g_scope_sync, g_scope_slew, g_ra_int, g_dec_int, g_scope_old
     stellarium_uart = UART(0, baudrate=9600, tx=Pin(0), rx=Pin(1))
     stellarium_uart.init(bits=8, parity=None, stop=1)
     print(stellarium_uart)
@@ -203,6 +203,7 @@ async def readwrite_stellarium():
             print(NextStar_cmd)
             try:
                 if NextStar_cmdchr0 == 'e':
+                    g_scope_old = True
                     stellarium_uart.write(precise_ra_dec)
                     print("precise ra dec: ", precise_ra_dec)
                 elif NextStar_cmdchr0 == 's':
@@ -219,6 +220,7 @@ async def readwrite_stellarium():
                 elif NextStar_cmdchr0 == 'r':
                     g_scope_slew = True
                     g_scope_sync = False
+                    g_scope_old = False
                     print(NextStar_cmd)
                     msg = str(NextStar_cmd, 'utf-8')
                     print(msg)
