@@ -134,8 +134,8 @@ sm_4.active(1), sm_5.active(1) # Motor 2 State machine 4 and 5 in PIO block 1
 def steps(x, y): # Feeds the PIO programs and activates them.
     global motor_1, motor_2
     global x_last, y_last
-    x_last = x + x_last
-    y_last += y # same but shorter notation
+    x_last += x # same as x + x_last, but shorter notation
+    y_last += y
     motor_1 = False
     motor_2 = False
     x_steps = round(x)
