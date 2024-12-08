@@ -15,19 +15,20 @@ g_my_longitude = 0.0
 g_my_altitude = 0.0
 g_pitch = 0
 g_roll = 0
+g_sidereal_steps = 0
 g_alt_correction = False
+g_scope_current = False
 g_scope_sync = False
 g_scope_slew = False
-g_scope_old = False
 g_precise_RA_DEC = '00000000,00000000#'
 g_ra_int = 0
-g_dec_int = 0
+g_dec_int = 3221225472
 
 
 # ---------------- Async: Read Serial Data from NEO-7M GPS ------------------
 async def read_gps():
 
-    global g_my_latitude, g_my_longitude, g_my_altitude
+    global g_utc_int, g_my_latitude, g_my_longitude, g_my_altitude
     gps_input= UART(1,baudrate=9600, tx=Pin(4), rx=Pin(5))
     print(gps_input)
 
@@ -70,6 +71,7 @@ async def read_gps():
                 #print("E/W         : " + parts[5])
                 print("Position Fix: " + parts[6])
                 #print("n sat       : " + parts[7])
+                utc_int = int(parts[1])
                 latitude = convertToDegree(parts[2])
                 if (parts[3] == 'S'):
                     latitude = -float(latitude)
@@ -85,7 +87,7 @@ async def read_gps():
                     print(gpsTime)
                     g_my_latitude = latitude
                     g_my_longitude = longitude
-
+                    g_utc_int = int(str(utc_int)[1:6])
                     FIX_STATUS = True
                 else:
                     print('No GPS fix')
@@ -94,8 +96,17 @@ async def read_gps():
         await asyncio.sleep(0.25)
 
 
-# ---------------- Async: Read Right Ascension and Declination Data from IMU ------------------
+# ---------------- Async: Sidereal Time Steps ------------------
+"""async def sidereal_steps():
 
+    while True:
+        if g_scope_current == True:
+            ctrl.steps(-9, 0)
+        else:
+            pass
+        await asyncio.sleep(1)"""
+
+# ---------------- Async: Read Right Ascension and Declination Data from IMU ------------------
 async def read_pitchroll():
 
     global g_pitch, g_roll
@@ -132,7 +143,7 @@ async def alt_correction():
 
 # ---------------- Async: GOTO possition ------------------
 async def goto_position():
-    global g_precise_RA_DEC
+    global g_precise_RA_DEC, g_scope_sync, g_scope_slew
 
 
     def calc_steps(int_old, int_new):
@@ -147,8 +158,16 @@ async def goto_position():
 
 
     while True:
-        if g_alt_correction == True and g_scope_sync == False and g_scope_slew == False: 
-            g_precise_RA_DEC = '00000000,C0000000#'
+        if g_alt_correction == True and g_scope_current == True and g_scope_sync == False and g_scope_slew == False:
+            ra_int_old = g_ra_int
+            dec_int_old = g_dec_int
+            ra_hex = hex(ra_int_old)
+            ra_hex = ra_hex[2:]
+            ra_hex = ('00000000' + ra_hex)[-8:]
+            dec_hex = hex(dec_int_old)
+            dec_hex = dec_hex[2:]
+            dec_hex = ('00000000' + dec_hex)[-8:]
+            g_precise_RA_DEC = str.upper(ra_hex + ',' + dec_hex + '#')     
         elif g_scope_sync == True:
             ra_int_old = g_ra_int
             dec_int_old = g_dec_int
@@ -165,10 +184,9 @@ async def goto_position():
             dec_int_new = g_dec_int
             dec_steps = calc_steps(dec_int_old, dec_int_new)
             ctrl.steps(ra_steps, dec_steps)
-            if g_scope_old == False:
-                ra_int_old = ra_int_new
-                dec_int_old = dec_int_new
-                print("g_scope_old: ", g_scope_old)
+            print("ra_int_old: ", ra_int_old, "ra_int_new: ", ra_int_new, "dec_int_old: ", dec_int_old, "dec_int_new: ", dec_int_new)
+            ra_int_old = ra_int_new
+            dec_int_old = dec_int_new
             ra_hex = hex(ra_int_new)
             ra_hex = ra_hex[2:]
             ra_hex = ('00000000' + ra_hex)[-8:]
@@ -183,7 +201,7 @@ async def goto_position():
 
 # ---------------- Async: Serial Data from/to Stellarium ------------------
 async def readwrite_stellarium():
-    global g_scope_sync, g_scope_slew, g_ra_int, g_dec_int, g_scope_old
+    global g_scope_current, g_scope_sync, g_scope_slew, g_ra_int, g_dec_int
     stellarium_uart = UART(0, baudrate=9600, tx=Pin(0), rx=Pin(1))
     stellarium_uart.init(bits=8, parity=None, stop=1)
     print(stellarium_uart)
@@ -203,14 +221,17 @@ async def readwrite_stellarium():
             print(NextStar_cmd)
             try:
                 if NextStar_cmdchr0 == 'e':
-                    g_scope_old = True
+                    g_scope_current = True
+                    g_scope_sync = False
+                    g_scope_slew = False             
+                    msg = str(NextStar_cmd, 'utf-8')
                     stellarium_uart.write(precise_ra_dec)
                     print("precise ra dec: ", precise_ra_dec)
                 elif NextStar_cmdchr0 == 's':
                     g_scope_sync = True
+                    g_scope_current = False
                     g_scope_slew = False
                     msg = str(NextStar_cmd, 'utf-8')
-                    print(msg)
                     ra_int = int((msg[1:9]), 16) # take chr1_8 hex numbers and convert to int
                     dec_int = int((msg[10:18]), 16) # take chr10_18 hex numbers and convert to int
                     g_ra_int = ra_int
@@ -219,31 +240,29 @@ async def readwrite_stellarium():
                     print("precise ra dec: ", precise_ra_dec)
                 elif NextStar_cmdchr0 == 'r':
                     g_scope_slew = True
+                    g_scope_current = False
                     g_scope_sync = False
-                    g_scope_old = False
-                    print(NextStar_cmd)
                     msg = str(NextStar_cmd, 'utf-8')
-                    print(msg)
                     ra_int = int((msg[1:9]), 16) # take chr1_9 hex numbers and convert to int
                     dec_int = int((msg[10:18]), 16) # take chr11_18 hex numbers and convert to int
                     g_ra_int = ra_int
                     g_dec_int = dec_int
-                    stellarium_uart.write(precise_ra_dec)
+                    stellarium_uart.write(precise_ra_dec)                
                 else:
                     pass
             except:
                 pass
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.25)
 
 
 # ---------------- Main Program Loop ------------------
 async def main():
     asyncio.create_task(read_gps())
+    #asyncio.create_task(sidereal_steps())
     asyncio.create_task(read_pitchroll())
     asyncio.create_task(alt_correction())
     asyncio.create_task(goto_position())
     asyncio.create_task(readwrite_stellarium())
-    #asyncio.create_task(write_ra_stepper())
     
     while True:
         try:
