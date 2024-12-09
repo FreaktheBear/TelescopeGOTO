@@ -4,6 +4,7 @@ import os
 import machine
 import math
 import utime, time
+import ssd1306
 import stepper_controller as ctrl
 from machine import I2C, Pin, UART
 from MPU import MPU6050
@@ -13,10 +14,11 @@ from MPU import MPU6050
 g_my_latitude = 0.0
 g_my_longitude = 0.0
 g_my_altitude = 0.0
+g_alt_correction = 0.0
 g_pitch = 0
 g_roll = 0
 g_sidereal_steps = 0
-g_alt_correction = False
+g_alt_corrected = False
 g_scope_current = False
 g_scope_sync = False
 g_scope_slew = False
@@ -28,7 +30,7 @@ g_dec_int = 3221225472
 # ---------------- Async: Read Serial Data from NEO-7M GPS ------------------
 async def read_gps():
 
-    global g_utc_int, g_my_latitude, g_my_longitude, g_my_altitude
+    global g_my_latitude, g_my_longitude, g_my_altitude
     gps_input= UART(1,baudrate=9600, tx=Pin(4), rx=Pin(5))
     print(gps_input)
 
@@ -71,7 +73,6 @@ async def read_gps():
                 #print("E/W         : " + parts[5])
                 print("Position Fix: " + parts[6])
                 #print("n sat       : " + parts[7])
-                utc_int = int(parts[1])
                 latitude = convertToDegree(parts[2])
                 if (parts[3] == 'S'):
                     latitude = -float(latitude)
@@ -87,7 +88,6 @@ async def read_gps():
                     print(gpsTime)
                     g_my_latitude = latitude
                     g_my_longitude = longitude
-                    g_utc_int = int(str(utc_int)[1:6])
                     FIX_STATUS = True
                 else:
                     print('No GPS fix')
@@ -106,26 +106,27 @@ async def read_pitchroll():
     obj.callibrate_acc() #calibrating accelerometer
     
     while True:
-        if g_alt_correction == False:
+        if g_alt_corrected == False:
             pitch, roll, dt = obj.return_angles()
             g_pitch = pitch
             g_roll = roll
-        elif g_alt_correction == True:
+        elif g_alt_corrected == True:
             break
         await asyncio.sleep(0.0001)        
 
 
 # ---------------- Async: Set Altitude Correction ------------------
 async def alt_correction():
-    global g_alt_correction
+    global g_alt_correction, g_alt_corrected
     pushbutton = Pin(6, Pin.IN, Pin.PULL_UP)    # GPIO6 Digital Input IX0.0
     
     while True:    
-        altitude =  -1*g_pitch + g_my_latitude
-        print("altitude", altitude)
-        if altitude > 0 and g_alt_correction == False or pushbutton.value() != 1:
+        alt_correction =  -1*g_pitch + g_my_latitude
+        g_alt_correction = alt_correction
+        print("alt_correction", alt_correction)
+        if alt_correction > 0 and g_alt_corrected == False or pushbutton.value() != 1:
             pushbutton.value(1)
-            g_alt_correction = True
+            g_alt_corrected = True
             break
         else:
             pass
@@ -150,11 +151,10 @@ async def goto_position():
             pass
 
     while True:
-        if g_alt_correction == True and g_scope_current == True and g_scope_sync == False and g_scope_slew == False:
+        if g_alt_corrected == True and g_scope_current == True and g_scope_sync == False and g_scope_slew == False:
             counts += 0.1
-            if counts >= 8.8:
-                ctrl.steps(-1, 0)
-                ra_int_old = ra_int_old - 135061 # 
+            if counts >= 88.3:  # initial calculations 1 step per 8.8333 sec, but imperically adjusted
+                ctrl.steps(-10, 0) #ra_int_old = ra_int_old - 1350618 # 1 step = 2^32/31800 = 135061.8 bits
                 counts = 0.0
             ra_hex = hex(ra_int_old)
             ra_hex = ra_hex[2:]
@@ -192,6 +192,29 @@ async def goto_position():
         else:
             pass
         await asyncio.sleep(0.1)
+
+
+# ---------------- Async: OLED Readout ------------------
+"""async def oled():
+    # using default address 0x3C
+    i2c = I2C(sda=Pin(2), scl=Pin(3))
+    dsp = ssd1306.SSD1306_I2C(128, 64, i2c)
+    dsp.fill(0)
+
+    while True:
+        if g_alt_corrected == False:
+            dsp.text('Alt correction',0,0)
+            msg='Alt: '+str(round(g_alt_correction,2))
+            dsp.text(msg,0,16)
+            dsp.show()
+            dsp.fill(0)
+        elif g_alt_corrected == True:
+            dsp.text('Celestial coordinates',0,0)
+            msg='RA: '+g_precise_ra_dec
+            dsp.text(msg,0,16)
+            dsp.show()
+            dsp.fill(0)            
+        await asyncio.sleep(0.2)"""
 
 
 # ---------------- Async: Serial Data from/to Stellarium ------------------
@@ -254,6 +277,7 @@ async def main():
     asyncio.create_task(read_pitchroll())
     asyncio.create_task(alt_correction())
     asyncio.create_task(goto_position())
+    #asyncio.create_task(oled())
     asyncio.create_task(readwrite_stellarium())
     
     while True:

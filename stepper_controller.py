@@ -218,7 +218,7 @@ def zero():
 #         r_speed = r
 
 if __name__ == "__main__":
-    machine.freq(250_000_000)
+    #machine.freq(250_000_000)
     print(machine.freq()/1000000, "MHz clock-speed")
     #input("\nPress any key to test:\ninstructor()")
-    instructor(((20, -20), (-20, 20)))
+    #instructor(((20, -20), (-20, 20)))
