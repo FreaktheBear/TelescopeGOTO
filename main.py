@@ -20,7 +20,7 @@ g_alt_correction = False
 g_scope_current = False
 g_scope_sync = False
 g_scope_slew = False
-g_precise_RA_DEC = '00000000,00000000#'
+g_precise_ra_dec = '00000000,00000000#'
 g_ra_int = 0
 g_dec_int = 3221225472
 
@@ -96,16 +96,6 @@ async def read_gps():
         await asyncio.sleep(0.25)
 
 
-# ---------------- Async: Sidereal Time Steps ------------------
-"""async def sidereal_steps():
-
-    while True:
-        if g_scope_current == True:
-            ctrl.steps(-9, 0)
-        else:
-            pass
-        await asyncio.sleep(1)"""
-
 # ---------------- Async: Read Right Ascension and Declination Data from IMU ------------------
 async def read_pitchroll():
 
@@ -143,8 +133,11 @@ async def alt_correction():
 
 # ---------------- Async: GOTO possition ------------------
 async def goto_position():
-    global g_precise_RA_DEC, g_scope_sync, g_scope_slew
+    global g_precise_ra_dec
 
+    ra_int_old = g_ra_int
+    dec_int_old = g_dec_int
+    counts = 0.0
 
     def calc_steps(int_old, int_new):
         if int_new > int_old:
@@ -156,18 +149,21 @@ async def goto_position():
         else:
             pass
 
-
     while True:
         if g_alt_correction == True and g_scope_current == True and g_scope_sync == False and g_scope_slew == False:
-            ra_int_old = g_ra_int
-            dec_int_old = g_dec_int
+            counts += 0.1
+            if counts >= 8.8:
+                ctrl.steps(-1, 0)
+                ra_int_old = ra_int_old - 135061 # 
+                counts = 0.0
             ra_hex = hex(ra_int_old)
             ra_hex = ra_hex[2:]
             ra_hex = ('00000000' + ra_hex)[-8:]
             dec_hex = hex(dec_int_old)
             dec_hex = dec_hex[2:]
             dec_hex = ('00000000' + dec_hex)[-8:]
-            g_precise_RA_DEC = str.upper(ra_hex + ',' + dec_hex + '#')     
+            g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
+            print("precise ra dec: ", g_precise_ra_dec, counts)
         elif g_scope_sync == True:
             ra_int_old = g_ra_int
             dec_int_old = g_dec_int
@@ -177,14 +173,13 @@ async def goto_position():
             dec_hex = hex(dec_int_old)
             dec_hex = dec_hex[2:]
             dec_hex = ('00000000' + dec_hex)[-8:]
-            g_precise_RA_DEC = str.upper(ra_hex + ',' + dec_hex + '#')
+            g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
         elif g_scope_slew == True:
             ra_int_new = g_ra_int
             ra_steps = calc_steps(ra_int_old, ra_int_new)
             dec_int_new = g_dec_int
             dec_steps = calc_steps(dec_int_old, dec_int_new)
             ctrl.steps(ra_steps, dec_steps)
-            print("ra_int_old: ", ra_int_old, "ra_int_new: ", ra_int_new, "dec_int_old: ", dec_int_old, "dec_int_new: ", dec_int_new)
             ra_int_old = ra_int_new
             dec_int_old = dec_int_new
             ra_hex = hex(ra_int_new)
@@ -193,7 +188,7 @@ async def goto_position():
             dec_hex = hex(dec_int_new)
             dec_hex = dec_hex[2:]
             dec_hex = ('00000000' + dec_hex)[-8:]
-            g_precise_RA_DEC = str.upper(ra_hex + ',' + dec_hex + '#')
+            g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
         else:
             pass
         await asyncio.sleep(0.1)
@@ -214,7 +209,7 @@ async def readwrite_stellarium():
     NextStar_cmdchr0 = None
 
     while True:
-        precise_ra_dec = g_precise_RA_DEC
+        precise_ra_dec = g_precise_ra_dec
         if stellarium_uart.any(): 
             NextStar_cmd = stellarium_uart.read()
             NextStar_cmdchr0 = chr(NextStar_cmd[0])
@@ -226,7 +221,6 @@ async def readwrite_stellarium():
                     g_scope_slew = False             
                     msg = str(NextStar_cmd, 'utf-8')
                     stellarium_uart.write(precise_ra_dec)
-                    print("precise ra dec: ", precise_ra_dec)
                 elif NextStar_cmdchr0 == 's':
                     g_scope_sync = True
                     g_scope_current = False
@@ -237,7 +231,6 @@ async def readwrite_stellarium():
                     g_ra_int = ra_int
                     g_dec_int = dec_int
                     stellarium_uart.write(precise_ra_dec)
-                    print("precise ra dec: ", precise_ra_dec)
                 elif NextStar_cmdchr0 == 'r':
                     g_scope_slew = True
                     g_scope_current = False
@@ -258,7 +251,6 @@ async def readwrite_stellarium():
 # ---------------- Main Program Loop ------------------
 async def main():
     asyncio.create_task(read_gps())
-    #asyncio.create_task(sidereal_steps())
     asyncio.create_task(read_pitchroll())
     asyncio.create_task(alt_correction())
     asyncio.create_task(goto_position())
