@@ -1,13 +1,12 @@
 import asyncio
 import binascii
 import os
-import machine
 import math
 import utime, time
-import ssd1306
 import stepper_controller as ctrl
 from machine import I2C, Pin, UART
 from MPU import MPU6050
+from ssd1306 import SSD1306_I2C
 
 
 # ---------------- Global Variable Declaration ------------------ ��
@@ -195,26 +194,48 @@ async def goto_position():
 
 
 # ---------------- Async: OLED Readout ------------------
-"""async def oled():
-    # using default address 0x3C
-    i2c = I2C(sda=Pin(2), scl=Pin(3))
-    dsp = ssd1306.SSD1306_I2C(128, 64, i2c)
-    dsp.fill(0)
 
+async def oled():
+
+# Pin numbers for I2C communication
+    sda_pin=Pin(20)
+    scl_pin=Pin(21)
+    # Display dimensions
+    WIDTH =128 
+    HEIGHT= 64
+    # Set up I2C communication
+    i2c=I2C(0,scl=scl_pin,sda=sda_pin,freq=200000)
+    await asyncio.sleep(0.1)
+    # Initialize SSD1306 display with I2C interface
+    oled = SSD1306_I2C(WIDTH,HEIGHT,i2c)
     while True:
         if g_alt_corrected == False:
-            dsp.text('Alt correction',0,0)
-            msg='Alt: '+str(round(g_alt_correction,2))
-            dsp.text(msg,0,16)
-            dsp.show()
-            dsp.fill(0)
-        elif g_alt_corrected == True:
-            dsp.text('Celestial coordinates',0,0)
-            msg='RA: '+g_precise_ra_dec
-            dsp.text(msg,0,16)
-            dsp.show()
-            dsp.fill(0)            
-        await asyncio.sleep(0.2)"""
+            # Clear the display
+            oled.fill(0)
+            # text, x-position, y-position
+            oled.text("Alt. correction:", 0, 0)
+            str_alt_correction = str(round(g_alt_correction, 2))
+            oled.text(str_alt_correction, 0, 15)
+            # Show the updated display
+            oled.show()
+        else:
+            # Clear the display
+            oled.fill(0)
+            # text, x-position, y-position
+            oled.text("Right ascension:", 0, 0)
+            ra_deg = (g_ra_int/2**32)*360
+            ra_hours, ra_decimal = divmod(ra_deg, 24)
+            ra_hour_str = str('%02d' % int(ra_hours))
+            ra_minsec = ra_decimal*60
+            ra_min, ra_seconds = divmod(ra_minsec, 60)
+            ra_min_str = str('%02d' % int(ra_min))
+            ra_sec = ra_seconds*60
+            ra_sec_str = str('%02d' % int(ra_sec))
+            str_ra = (ra_hour_str+'h'+ra_min_str+'m'+ra_sec_str+'s')
+            oled.text(str_ra, 0, 15)
+            # Show the updated display
+            oled.show()            
+        await asyncio.sleep(0.2)            
 
 
 # ---------------- Async: Serial Data from/to Stellarium ------------------
@@ -277,7 +298,7 @@ async def main():
     asyncio.create_task(read_pitchroll())
     asyncio.create_task(alt_correction())
     asyncio.create_task(goto_position())
-    #asyncio.create_task(oled())
+    asyncio.create_task(oled())
     asyncio.create_task(readwrite_stellarium())
     
     while True:
