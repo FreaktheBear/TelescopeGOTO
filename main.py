@@ -4,7 +4,7 @@ import os
 import math
 import utime, time
 import stepper_controller as ctrl
-from machine import I2C, Pin, UART
+from machine import I2C, Pin, UART, ADC
 from MPU import MPU6050
 from ssd1306 import SSD1306_I2C
 
@@ -24,6 +24,11 @@ g_scope_slew = False
 g_precise_ra_dec = '00000000,00000000#'
 g_ra_int = 0
 g_dec_int = 3221225472
+g_joy_right = False
+g_joy_left = False
+g_joy_up = False
+g_joy_down = False
+g_joy_button = False
 
 
 # ---------------- Async: Read Serial Data from NEO-7M GPS ------------------
@@ -75,8 +80,12 @@ async def read_gps():
                 latitude = convertToDegree(parts[2])
                 if (parts[3] == 'S'):
                     latitude = -float(latitude)
+                else:
+                    latitude = float(latitude)
                 longitude = convertToDegree(parts[4])
                 if (parts[5] == 'W'):
+                    longitude = -float(longitude)
+                else:
                     longitude = float(longitude)
                 satellites = parts[7]
                 gpsTime = parts[1][0:2] + ":" + parts[1][2:4] + ":" + parts[1][4:6]
@@ -117,18 +126,61 @@ async def read_pitchroll():
 # ---------------- Async: Set Altitude Correction ------------------
 async def alt_correction():
     global g_alt_correction, g_alt_corrected
-    pushbutton = Pin(6, Pin.IN, Pin.PULL_UP)    # GPIO6 Digital Input IX0.0
+    #pushbutton = Pin(6, Pin.IN, Pin.PULL_UP)    # GPIO6 Digital Input IX0.0
     
     while True:    
         alt_correction =  -1*g_pitch + g_my_latitude
         g_alt_correction = alt_correction
-        print("alt_correction", alt_correction)
-        if alt_correction > 0 and g_alt_corrected == False or pushbutton.value() != 1:
-            pushbutton.value(1)
+        #print("alt_correction", alt_correction)
+        if alt_correction > 0 and g_alt_corrected == False or g_joy_button == True: #pushbutton.value() != 1:
+            #pushbutton.value(1)
             g_alt_corrected = True
             break
         else:
             pass
+        await asyncio.sleep(0.1)
+
+
+# ---------------- Async: Joystick Control ------------------
+async def joystick():
+    global g_joy_right, g_joy_left, g_joy_up, g_joy_down, g_joy_button
+    xAxis = ADC(Pin(26))
+    yAxis = ADC(Pin(27))
+    button = Pin(18,Pin.IN, Pin.PULL_UP)
+
+    while True:
+        xValue = xAxis.read_u16()
+        yValue = yAxis.read_u16()
+        buttonValue = button.value()
+        if xValue >= 60000:
+            xStatus = "left"
+            g_joy_left = True
+            g_joy_right = False
+        elif xValue <= 600:
+            xStatus = "right"
+            g_joy_right = True
+            g_joy_left = False
+        elif yValue <= 600:
+            yStatus = "up"
+            g_joy_up = True
+            g_joy_down = False
+        elif yValue >= 60000:
+            yStatus = "down"
+            g_joy_down = True
+            g_joy_up = False
+        elif buttonValue == 0:
+            buttonStatus = "pressed"
+            g_joy_button = True
+        else:
+            xStatus = "middle"
+            yStatus = "middle"
+            g_joy_left = False
+            g_joy_right = False
+            g_joy_up = False
+            g_joy_down = False
+            buttonStatus = "not pressed"
+            g_joy_button = False
+        #print("X: " + xStatus + ", Y: " + yStatus + " -- button " + buttonStatus)
         await asyncio.sleep(0.1)
 
 # ---------------- Async: GOTO possition ------------------
@@ -152,8 +204,8 @@ async def goto_position():
     while True:
         if g_alt_corrected == True and g_scope_current == True and g_scope_sync == False and g_scope_slew == False:
             counts += 0.1
-            if counts >= 88.3:  # initial calculations 1 step per 8.8333 sec, but imperically adjusted
-                ctrl.steps(-10, 0) #ra_int_old = ra_int_old - 1350618 # 1 step = 2^32/31800 = 135061.8 bits
+            if counts >= 88.3:  # calculations 1 step per 8.8333 sec.
+                ctrl.steps(-10, 0)
                 counts = 0.0
             ra_hex = hex(ra_int_old)
             ra_hex = ra_hex[2:]
@@ -162,7 +214,7 @@ async def goto_position():
             dec_hex = dec_hex[2:]
             dec_hex = ('00000000' + dec_hex)[-8:]
             g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
-            print("precise ra dec: ", g_precise_ra_dec, counts)
+            #print("precise ra dec: ", g_precise_ra_dec, counts)
         elif g_scope_sync == True:
             ra_int_old = g_ra_int
             dec_int_old = g_dec_int
@@ -223,16 +275,30 @@ async def oled():
             oled.fill(0)
             # text, x-position, y-position
             oled.text("Right ascension:", 0, 0)
-            ra_deg = (g_ra_int/2**32)*360
-            ra_hours, ra_decimal = divmod(ra_deg, 24)
-            ra_hour_str = str('%02d' % int(ra_hours))
+            ra_deg = (g_ra_int/2**32)*24
+            ra_decimal , ra_hours = math.modf(ra_deg)
+            ra_hour_str = str('%02d' %ra_hours)
             ra_minsec = ra_decimal*60
-            ra_min, ra_seconds = divmod(ra_minsec, 60)
-            ra_min_str = str('%02d' % int(ra_min))
+            ra_seconds, ra_min = math.modf(ra_minsec)
+            ra_min_str = str('%02d' %ra_min)
             ra_sec = ra_seconds*60
-            ra_sec_str = str('%02d' % int(ra_sec))
+            ra_sec_str = str(round(ra_sec, 2))
             str_ra = (ra_hour_str+'h'+ra_min_str+'m'+ra_sec_str+'s')
             oled.text(str_ra, 0, 15)
+            oled.text("Declination:", 0, 30)
+            dec_deg = (g_dec_int/2**32)*360
+            if dec_deg >= 180:
+                dec_deg = dec_deg - 360
+                #print("dec_deg", dec_deg)
+            dec_decimal, dec_degrees = math.modf(dec_deg)
+            dec_degrees_str = str('%03d' %dec_degrees)
+            dec_minsec = abs(dec_decimal*60)
+            dec_seconds, dec_min = math.modf(dec_minsec)
+            dec_min_str = str('%02d' %dec_min)
+            dec_sec = dec_seconds*60
+            dec_sec_str = str(round(dec_sec, 2))
+            str_dec = (dec_degrees_str+'deg'+dec_min_str+'m'+dec_sec_str+'s')
+            oled.text(str_dec, 0, 45)
             # Show the updated display
             oled.show()            
         await asyncio.sleep(0.2)            
@@ -270,7 +336,7 @@ async def readwrite_stellarium():
                     g_scope_current = False
                     g_scope_slew = False
                     msg = str(NextStar_cmd, 'utf-8')
-                    ra_int = int((msg[1:9]), 16) # take chr1_8 hex numbers and convert to int
+                    ra_int = int((msg[1:9]), 16) # take chr1_9 hex numbers and convert to int
                     dec_int = int((msg[10:18]), 16) # take chr10_18 hex numbers and convert to int
                     g_ra_int = ra_int
                     g_dec_int = dec_int
@@ -297,6 +363,7 @@ async def main():
     asyncio.create_task(read_gps())
     asyncio.create_task(read_pitchroll())
     asyncio.create_task(alt_correction())
+    asyncio.create_task(joystick())
     asyncio.create_task(goto_position())
     asyncio.create_task(oled())
     asyncio.create_task(readwrite_stellarium())
