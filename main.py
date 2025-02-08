@@ -207,6 +207,14 @@ async def goto_position():
             if counts >= 88.3:  # calculations 1 step per 8.8333 sec.
                 ctrl.steps(-10, 0)
                 counts = 0.0
+            elif g_joy_left == True:
+                ctrl.steps(10,0)
+            elif g_joy_right == True:
+                ctrl.steps(-10,0)
+            elif g_joy_up == True:
+                ctrl.steps(0,10)
+            elif g_joy_down == True:
+                ctrl.steps(0,-10)
             ra_hex = hex(ra_int_old)
             ra_hex = ra_hex[2:]
             ra_hex = ('00000000' + ra_hex)[-8:]
@@ -360,13 +368,13 @@ async def readwrite_stellarium():
 
 # ---------------- Main Program Loop ------------------
 async def main():
-    asyncio.create_task(read_gps())
-    asyncio.create_task(read_pitchroll())
-    asyncio.create_task(alt_correction())
-    asyncio.create_task(joystick())
-    asyncio.create_task(goto_position())
+    #asyncio.create_task(read_gps())
+    #asyncio.create_task(read_pitchroll())
+    #asyncio.create_task(alt_correction())
+    #asyncio.create_task(joystick())
+    #asyncio.create_task(goto_position())
     asyncio.create_task(oled())
-    asyncio.create_task(readwrite_stellarium())
+    #asyncio.create_task(readwrite_stellarium())
     
     while True:
         try:
