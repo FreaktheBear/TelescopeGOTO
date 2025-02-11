@@ -3,10 +3,11 @@ import binascii
 import os
 import math
 import utime, time
-import stepper_controller as ctrl
-from machine import I2C, Pin, UART, ADC
+from machine import I2C, SoftI2C, Pin, UART, ADC, RTC
 from MPU import MPU6050
 from ssd1306 import SSD1306_I2C
+from stepper_ra import Stepper_RA
+from stepper_dec import Stepper_DEC
 
 
 # ---------------- Global Variable Declaration ------------------ ��
@@ -32,7 +33,7 @@ g_joy_button = False
 
 
 # ---------------- Async: Read Serial Data from NEO-7M GPS ------------------
-async def read_gps():
+async def read_gpsrmc():
 
     global g_my_latitude, g_my_longitude, g_my_altitude
     gps_input= UART(1,baudrate=9600, tx=Pin(4), rx=Pin(5))
@@ -44,8 +45,7 @@ async def read_gps():
     latitude = None
     longitude = None
     altitude = None
-    satellites = None
-    gpsTime = None
+    t_datetime = None
 
     #Function to convert raw Latitude and Longitude to actual Latitude and Longitude
     def convertToDegree(RawDegrees):
@@ -67,38 +67,47 @@ async def read_gps():
                 if buff is not None :
                     break
             parts = buff.split(',')
-            #print(buff)
-            if (parts[0] == "b'$GPGGA" and len(parts) == 15 and parts[1] and parts[2] and parts[3] and parts[4] and parts[5] and parts[6] and parts[7]):
-                #print("Message ID  : " + parts[0])
-                #print("UTC time    : " + parts[1])
-                #print("Latitude    : " + parts[2])
-                #print("N/S         : " + parts[3])
-                #print("Longitude   : " + parts[4])
-                #print("E/W         : " + parts[5])
-                print("Position Fix: " + parts[6])
-                #print("n sat       : " + parts[7])
-                latitude = convertToDegree(parts[2])
-                if (parts[3] == 'S'):
-                    latitude = -float(latitude)
-                else:
-                    latitude = float(latitude)
-                longitude = convertToDegree(parts[4])
-                if (parts[5] == 'W'):
-                    longitude = -float(longitude)
-                else:
-                    longitude = float(longitude)
-                satellites = parts[7]
-                gpsTime = parts[1][0:2] + ":" + parts[1][2:4] + ":" + parts[1][4:6]
-                if (parts[6] == '1' or parts[6] == '2'):
+            print(buff)
+            if (parts[0] == "b'$GPRMC" and len(parts) == 13 and parts[1] and parts[2] and parts[3] and parts[4] and parts[5] and parts[6]):
+                print("Message ID  : " + parts[0])
+                print("UTC time    : " + parts[1])
+                print("Pos. Status : " + parts[2])
+                print("Latitude    : " + parts[3])
+                print("N/S         : " + parts[4])
+                print("Longitude   : " + parts[5])
+                print("E/W         : " + parts[6])
+                if (parts[2] == 'A'):                    # Test if GPS data is valid
+                    latitude >= convertToDegree(parts[3])
+                    if (parts[4] == 'S'):
+                        latitude = -float(latitude)
+                    else:
+                        latitude = float(latitude)
+                    longitude = convertToDegree(parts[5])
+                    if (parts[6] == 'W'):
+                        longitude = -float(longitude)
+                    else:
+                        longitude = float(longitude)
                     print(latitude)
                     print(longitude)
-                    print(satellites)
-                    print(gpsTime)
                     g_my_latitude = latitude
                     g_my_longitude = longitude
                     FIX_STATUS = True
+
+                    year = int('20'+parts[9][4:6])      # create RTC set datetime variables
+                    month = int(parts[9][2:4])
+                    day = int(parts[9][0:2])
+                    hours = int(parts[1][0:2])
+                    minutes = int(parts[1][2:4])
+                    seconds = int(parts[1][4:6])
+                    t_datetime = (year, month, day, 0, hours, minutes, seconds, 0)  #(year, month, day, weekday, hours, minutes, seconds, subseconds)
+                    rtc = RTC()
+                    rtc.datetime(t_datetime)
+                    now = rtc.datetime()
+                    print(now)
+                    break
                 else:
                     print('No GPS fix')
+
             
             await asyncio.sleep(0.25)
         await asyncio.sleep(0.25)
@@ -118,6 +127,7 @@ async def read_pitchroll():
             pitch, roll, dt = obj.return_angles()
             g_pitch = pitch
             g_roll = roll
+            #print("pitch", pitch)
         elif g_alt_corrected == True:
             break
         await asyncio.sleep(0.0001)        
@@ -131,12 +141,13 @@ async def alt_correction():
     while True:    
         alt_correction =  -1*g_pitch + g_my_latitude
         g_alt_correction = alt_correction
-        #print("alt_correction", alt_correction)
+        print("alt_correction", alt_correction)
         if alt_correction > 0 and g_alt_corrected == False or g_joy_button == True: #pushbutton.value() != 1:
             #pushbutton.value(1)
             g_alt_corrected = True
             break
         else:
+            print("g_alt_corrected", g_alt_corrected)
             pass
         await asyncio.sleep(0.1)
 
@@ -150,24 +161,26 @@ async def joystick():
 
     while True:
         xValue = xAxis.read_u16()
+        #print("xValue", xValue)
         yValue = yAxis.read_u16()
+        #print("yValue", yValue)
         buttonValue = button.value()
         if xValue >= 60000:
-            xStatus = "left"
-            g_joy_left = True
-            g_joy_right = False
-        elif xValue <= 600:
-            xStatus = "right"
-            g_joy_right = True
-            g_joy_left = False
-        elif yValue <= 600:
-            yStatus = "up"
-            g_joy_up = True
-            g_joy_down = False
-        elif yValue >= 60000:
-            yStatus = "down"
+            xStatus = "down"
             g_joy_down = True
             g_joy_up = False
+        elif xValue <= 600:
+            xStatus = "up"
+            g_joy_up = True
+            g_joy_down = False
+        elif yValue <= 600:
+            yStatus = "right"
+            g_joy_right = True
+            g_joy_left = False
+        elif yValue >= 60000:
+            yStatus = "left"
+            g_joy_left = True
+            g_joy_right = False
         elif buttonValue == 0:
             buttonStatus = "pressed"
             g_joy_button = True
@@ -191,30 +204,48 @@ async def goto_position():
     dec_int_old = g_dec_int
     counts = 0.0
 
-    def calc_steps(int_old, int_new):
-        if int_new > int_old:
-            steps = round((int_new - int_old)/2**32 * 31800)               # full rev = 200 * 16 * 9.9375 = 31800
+    step_pin_RA = 11
+    dir_pin_RA = 10
+    stepper_RA = Stepper_RA(dir_pin_RA, step_pin_RA)
+
+    step_pin_DEC = 15
+    dir_pin_DEC = 14
+    stepper_DEC = Stepper_DEC(dir_pin_DEC, step_pin_DEC)
+
+    def calc_steps_ra(int_old, int_new):                                    # used two separate functions to calculate steps for RA and DEC
+        if int_new > int_old:                                               # to add flexibility for physical stepper motor setup
+            steps = round(-(int_new - int_old)/2**32 * 8000)                # full rev = 200rotationsteps * 8microsteps * 5gearratio = 8000 steps
             return steps
         elif int_new < int_old:
-            steps = round(-(int_old - int_new)/2**32 * 31800)
+            steps = round((int_old - int_new)/2**32 * 8000)
+            return steps
+        else:
+            pass
+
+    def calc_steps_dec(int_old, int_new):
+        if int_new > int_old:
+            steps = round((int_new - int_old)/2**32 * 8000)
+            return steps
+        elif int_new < int_old:
+            steps = round(-(int_old - int_new)/2**32 * 8000)
             return steps
         else:
             pass
 
     while True:
         if g_alt_corrected == True and g_scope_current == True and g_scope_sync == False and g_scope_slew == False:
-            counts += 0.1
+            """counts += 0.1
             if counts >= 88.3:  # calculations 1 step per 8.8333 sec.
-                ctrl.steps(-10, 0)
-                counts = 0.0
-            elif g_joy_left == True:
-                ctrl.steps(10,0)
+                #ctrl.steps(-10, 0)
+                counts = 0.0"""
+            if g_joy_left == True:
+                stepper_RA.move(-1, 8000, 1)
             elif g_joy_right == True:
-                ctrl.steps(-10,0)
+                stepper_RA.move(1, 8000, 1)
             elif g_joy_up == True:
-                ctrl.steps(0,10)
+                stepper_DEC.move(-1, 8000, 1)
             elif g_joy_down == True:
-                ctrl.steps(0,-10)
+                stepper_DEC.move(1, 8000, 1)
             ra_hex = hex(ra_int_old)
             ra_hex = ra_hex[2:]
             ra_hex = ('00000000' + ra_hex)[-8:]
@@ -235,10 +266,11 @@ async def goto_position():
             g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
         elif g_scope_slew == True:
             ra_int_new = g_ra_int
-            ra_steps = calc_steps(ra_int_old, ra_int_new)
+            ra_steps = calc_steps_ra(ra_int_old, ra_int_new)
             dec_int_new = g_dec_int
-            dec_steps = calc_steps(dec_int_old, dec_int_new)
-            ctrl.steps(ra_steps, dec_steps)
+            dec_steps = calc_steps_dec(dec_int_old, dec_int_new)
+            stepper_RA.move(ra_steps, 8000, 2)
+            stepper_DEC.move(dec_steps, 8000, 2)
             ra_int_old = ra_int_new
             dec_int_old = dec_int_new
             ra_hex = hex(ra_int_new)
@@ -256,18 +288,14 @@ async def goto_position():
 # ---------------- Async: OLED Readout ------------------
 
 async def oled():
+    WIDTH  = 128                                            # oled display width
+    HEIGHT = 64                                             # oled display height
 
-# Pin numbers for I2C communication
-    sda_pin=Pin(20)
-    scl_pin=Pin(21)
-    # Display dimensions
-    WIDTH =128 
-    HEIGHT= 64
-    # Set up I2C communication
-    i2c=I2C(0,scl=scl_pin,sda=sda_pin,freq=200000)
-    await asyncio.sleep(0.1)
-    # Initialize SSD1306 display with I2C interface
-    oled = SSD1306_I2C(WIDTH,HEIGHT,i2c)
+    # Pin assignment 
+    i2c = SoftI2C(scl=Pin(3), sda=Pin(2))
+
+    oled = SSD1306_I2C(WIDTH, HEIGHT, i2c)          # Init oled display
+
     while True:
         if g_alt_corrected == False:
             # Clear the display
@@ -328,6 +356,7 @@ async def readwrite_stellarium():
 
     while True:
         precise_ra_dec = g_precise_ra_dec
+        #precise_ra_dec = '00000000,C0000000#'
         if stellarium_uart.any(): 
             NextStar_cmd = stellarium_uart.read()
             NextStar_cmdchr0 = chr(NextStar_cmd[0])
@@ -368,13 +397,13 @@ async def readwrite_stellarium():
 
 # ---------------- Main Program Loop ------------------
 async def main():
-    #asyncio.create_task(read_gps())
-    #asyncio.create_task(read_pitchroll())
-    #asyncio.create_task(alt_correction())
-    #asyncio.create_task(joystick())
-    #asyncio.create_task(goto_position())
+    asyncio.create_task(read_gpsrmc())
+    asyncio.create_task(read_pitchroll())
+    asyncio.create_task(alt_correction())
+    asyncio.create_task(joystick())
+    asyncio.create_task(goto_position())
     asyncio.create_task(oled())
-    #asyncio.create_task(readwrite_stellarium())
+    asyncio.create_task(readwrite_stellarium())
     
     while True:
         try:
@@ -393,3 +422,72 @@ finally:
     asyncio.new_event_loop() #Create a new event loop
 
 
+"""async def read_gps():
+
+    global g_my_latitude, g_my_longitude, g_my_altitude
+    gps_input= UART(1,baudrate=9600, tx=Pin(4), rx=Pin(5))
+    print(gps_input)
+
+    FIX_STATUS = False
+
+    #Store GPS Coordinates
+    latitude = None
+    longitude = None
+    altitude = None
+    satellites = None
+    gpsTime = None
+
+    #Function to convert raw Latitude and Longitude to actual Latitude and Longitude
+    def convertToDegree(RawDegrees):
+
+        RawAsFloat = float(RawDegrees)
+        firstdigits = int(RawAsFloat/100) #degrees
+        nexttwodigits = RawAsFloat - float(firstdigits*100) #minutes
+        
+        Converted = float(firstdigits + nexttwodigits/60.0)
+        Converted = '{0:.6f}'.format(Converted) # to 6 decimal places
+        #return str(Converted)
+        return Converted
+
+    while True:
+        while FIX_STATUS == False:
+            print("Waiting for GPS data")
+            while True:
+                buff = str(gps_input.readline())
+                if buff is not None :
+                    break
+            parts = buff.split(',')
+            #print(buff)
+            if (parts[0] == "b'$GPGGA" and len(parts) == 15 and parts[1] and parts[2] and parts[3] and parts[4] and parts[5] and parts[6] and parts[7]):
+                #print("Message ID  : " + parts[0])
+                #print("UTC time    : " + parts[1])
+                #print("Latitude    : " + parts[2])
+                #print("N/S         : " + parts[3])
+                #print("Longitude   : " + parts[4])
+                #print("E/W         : " + parts[5])
+                print("Position Fix: " + parts[6])
+                #print("n sat       : " + parts[7])
+                if (parts[6] == '1' or parts[6] == '2'):
+                    latitude = convertToDegree(parts[2])
+                    if (parts[3] == 'S'):
+                        latitude = -float(latitude)
+                    else:
+                        latitude = float(latitude)
+                    longitude = convertToDegree(parts[4])
+                    if (parts[5] == 'W'):
+                        longitude = -float(longitude)
+                    else:
+                        longitude = float(longitude)
+                    satellites = parts[7]
+                    gpsTime = parts[1][0:2] + ":" + parts[1][2:4] + ":" + parts[1][4:6]
+                    print(latitude)
+                    print(longitude)
+                    print(satellites)
+                    print(gpsTime)
+                    g_my_latitude = latitude
+                    g_my_longitude = longitude
+                    FIX_STATUS = True
+                else:
+                    print('No GPS fix')
+            await asyncio.sleep(0.25)
+        await asyncio.sleep(0.25)"""
