@@ -32,16 +32,6 @@ class Stepper_DEC:
                 delay -= accel
             elif i >= steps // 2 and delay < max_delay:
                 delay += accel
- 
-step_pin_DEC = 15
-dir_pin_DEC = 14
-stepper_DEC = Stepper_DEC(dir_pin_DEC, step_pin_DEC)
- 
-def loop():
-    stepper_DEC.move(-500, 8000, 2)  # 2 revolutions backward
-    utime.sleep(1)
-    stepper_DEC.move(500, 8000, 2)  # 2 revolutions backward
-    utime.sleep(1)
 
 if __name__ == '__main__':
     loop()

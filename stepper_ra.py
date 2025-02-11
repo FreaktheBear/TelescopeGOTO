@@ -32,12 +32,6 @@ class Stepper_RA:
                 delay -= accel
             elif i >= steps // 2 and delay < max_delay:
                 delay += accel
- 
-def loop():
-    stepper_RA.move(-3000, 8000, 2)  # 2 revolutions forward
-    utime.sleep(1)
-    stepper_RA.move(3000, 8000, 2)  # 2 revolutions forward
-    utime.sleep(1)
 
 if __name__ == '__main__':
     loop()
