@@ -6,31 +6,31 @@ import utime, time
 from machine import I2C, SoftI2C, Pin, UART, ADC, RTC
 from MPU import MPU6050
 from ssd1306 import SSD1306_I2C
-from stepper_ra import Stepper_RA
-from stepper_dec import Stepper_DEC
+from stepper import Stepper
 
 
-# ---------------- Global Variable Declaration ------------------ ��
+# ---------------- Global Variable Declaration ------------------
 g_my_latitude = 0.0
 g_my_longitude = 0.0
 g_my_altitude = 0.0
 g_alt_correction = 0.0
 g_pitch = 0
 g_roll = 0
-g_sidereal_steps = 0
 g_alt_corrected = False
 g_scope_current = False
 g_scope_sync = False
 g_scope_slew = False
 g_precise_ra_dec = '00000000,00000000#'
-g_ra_int = 0
-g_dec_int = 3221225472
+g_ra_int = 0                            # 0 hours in integer format
+g_dec_int = 3221225472                  # 270 degrees in integer format
 g_joy_right = False
 g_joy_left = False
 g_joy_up = False
 g_joy_down = False
 g_joy_button = False
 
+ms12_pin_RA = Pin(6, Pin.OUT, value=1)                  # Defines Pin MS1_2 as step 1/8 pins for motor 1 (RA)
+ms12_pin_DEC = Pin(8, Pin.OUT, value=1)                 # Defines Pin MS1_2 as step 1/8 pins for motor 2 (DEC)
 
 # ---------------- Async: Read Serial Data from NEO-7M GPS ------------------
 async def read_gpsrmc():
@@ -46,10 +46,10 @@ async def read_gpsrmc():
     longitude = None
     altitude = None
     t_datetime = None
+    buff = None
 
     #Function to convert raw Latitude and Longitude to actual Latitude and Longitude
     def convertToDegree(RawDegrees):
-
         RawAsFloat = float(RawDegrees)
         firstdigits = int(RawAsFloat/100) #degrees
         nexttwodigits = RawAsFloat - float(firstdigits*100) #minutes
@@ -68,7 +68,7 @@ async def read_gpsrmc():
                     break
             parts = buff.split(',')
             print(buff)
-            if (parts[0] == "b'$GPRMC" and len(parts) == 13 and parts[1] and parts[2] and parts[3] and parts[4] and parts[5] and parts[6]):
+            if (parts[0] == "b'$GPRMC" and len(parts) == 13 and parts[1] and parts[2] and parts[3] and parts[4] and parts[5] and parts[6] and parts[7] and parts[8] and parts[9]):
                 print("Message ID  : " + parts[0])
                 print("UTC time    : " + parts[1])
                 print("Pos. Status : " + parts[2])
@@ -109,8 +109,8 @@ async def read_gpsrmc():
                     print('No GPS fix')
 
             
-            await asyncio.sleep(0.25)
-        await asyncio.sleep(0.25)
+            await asyncio.sleep(0.1)
+        await asyncio.sleep(0.1)
 
 
 # ---------------- Async: Read Right Ascension and Declination Data from IMU ------------------
@@ -142,8 +142,7 @@ async def alt_correction():
         alt_correction =  -1*g_pitch + g_my_latitude
         g_alt_correction = alt_correction
         print("alt_correction", alt_correction)
-        if alt_correction > 0 and g_alt_corrected == False or g_joy_button == True: #pushbutton.value() != 1:
-            #pushbutton.value(1)
+        if alt_correction > 0 and g_alt_corrected == False or g_joy_button == True:
             g_alt_corrected = True
             break
         else:
@@ -206,38 +205,67 @@ async def goto_position():
 
     step_pin_RA = 11
     dir_pin_RA = 10
-    stepper_RA = Stepper_RA(dir_pin_RA, step_pin_RA)
+    stepper_RA = Stepper(dir_pin_RA, step_pin_RA)
 
     step_pin_DEC = 15
     dir_pin_DEC = 14
-    stepper_DEC = Stepper_DEC(dir_pin_DEC, step_pin_DEC)
+    stepper_DEC = Stepper(dir_pin_DEC, step_pin_DEC)
 
-    def calc_steps_ra(int_old, int_new):                                    # used two separate functions to calculate steps for RA and DEC
-        if int_new > int_old:                                               # to add flexibility for physical stepper motor setup
-            steps = round(-(int_new - int_old)/2**32 * 8000)                # full rev = 200rotationsteps * 8microsteps * 5gearratio = 8000 steps
+    def calc_steps_utc():
+        rtc = RTC()
+        now = rtc.datetime()
+        inthr = now[4]
+        intmin = now[5]
+        intsec = now[6]
+        utcsteps = round(((inthr*3600 + intmin*60 + intsec)*49710)/2**32 * 8000)    # 2**32/(24*3600) = 49710 bits per second
+        return utcsteps
+
+    def calc_steps_ra(int_old, int_new):
+        if (int_old < 2**32/2 and int_new < 2**32/2) or (int_old >= 2**32/2 and int_new >= 2**32/2):
+            if int_new > int_old:
+                steps = -round((int_new - int_old)/2**32 * 8000)
+                return steps
+            elif int_new < int_old:
+                steps = round((int_old - int_new)/2**32 * 8000)
+                return steps
+        elif int_old < 2**32/2 and int_new >= 2**32/2:
+            steps = round((2**32 - (int_new - int_old))/2**32 * 8000)
+            return steps
+        elif int_old >= 2**32/2 and int_new < 2**32/2:
+            steps = -round((0 + (int_old - int_new))/2**32 * 8000)
+            return steps
+        
+    def calc_steps_dec(int_old, int_new):
+        if (int_old < 2**32/2 and int_new < 2**32/2) or (int_old >= 2**32/2 and int_new >= 2**32/2):
+            if int_new > int_old:
+                steps = -round((int_new - int_old)/2**32 * 8000)
+                return steps
+            elif int_new < int_old:
+                steps = round((int_old - int_new)/2**32 * 8000)
+                return steps
+        elif int_old < 2**32/2 and int_new >= 2**32/2:
+            steps = round((2**32 - (int_new - int_old))/2**32 * 8000)
+            return steps
+        elif int_old >= 2**32/2 and int_new < 2**32/2:
+            steps = -round((0 + (int_old - int_new))/2**32 * 8000)
+            return steps
+
+    """def calc_steps_dec(int_old, int_new):
+        if int_new > int_old:
+            steps = round(-(int_new - int_old)/2**32 * 8000)
             return steps
         elif int_new < int_old:
             steps = round((int_old - int_new)/2**32 * 8000)
             return steps
         else:
-            pass
-
-    def calc_steps_dec(int_old, int_new):
-        if int_new > int_old:
-            steps = round((int_new - int_old)/2**32 * 8000)
-            return steps
-        elif int_new < int_old:
-            steps = round(-(int_old - int_new)/2**32 * 8000)
-            return steps
-        else:
-            pass
+            pass"""
 
     while True:
         if g_alt_corrected == True and g_scope_current == True and g_scope_sync == False and g_scope_slew == False:
-            """counts += 0.1
-            if counts >= 88.3:  # calculations 1 step per 8.8333 sec.
-                #ctrl.steps(-10, 0)
-                counts = 0.0"""
+            counts += 1
+            if g_precise_ra_dec != '00000000,C0000000' and counts >= 100:   # 0.0092592593 steps per 0.1 seconds * 100 = 0.92592593 steps per 1 second
+                stepper_RA.move(1, 8000, 1)
+                counts = 0
             if g_joy_left == True:
                 stepper_RA.move(-1, 8000, 1)
             elif g_joy_right == True:
@@ -253,7 +281,6 @@ async def goto_position():
             dec_hex = dec_hex[2:]
             dec_hex = ('00000000' + dec_hex)[-8:]
             g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
-            #print("precise ra dec: ", g_precise_ra_dec, counts)
         elif g_scope_sync == True:
             ra_int_old = g_ra_int
             dec_int_old = g_dec_int
@@ -267,9 +294,9 @@ async def goto_position():
         elif g_scope_slew == True:
             ra_int_new = g_ra_int
             ra_steps = calc_steps_ra(ra_int_old, ra_int_new)
+            stepper_RA.move(ra_steps, 8000, 2)
             dec_int_new = g_dec_int
             dec_steps = calc_steps_dec(dec_int_old, dec_int_new)
-            stepper_RA.move(ra_steps, 8000, 2)
             stepper_DEC.move(dec_steps, 8000, 2)
             ra_int_old = ra_int_new
             dec_int_old = dec_int_new
@@ -346,7 +373,6 @@ async def readwrite_stellarium():
     stellarium_uart = UART(0, baudrate=9600, tx=Pin(0), rx=Pin(1))
     stellarium_uart.init(bits=8, parity=None, stop=1)
     print(stellarium_uart)
-
     #LX200 format does not work for micropython due to special character used
     #NexStar format
     #'00000000,C0000000#' #Equatorial South Pole coordinates 0 hours, 270 degrees in Nexstar values, hex capital letters needed!
@@ -356,7 +382,7 @@ async def readwrite_stellarium():
 
     while True:
         precise_ra_dec = g_precise_ra_dec
-        #precise_ra_dec = '00000000,C0000000#'
+        #precise_ra_dec = '00000000,C0000000#' NexStar equatorial South Pole coordinates 0 hours, 270 degrees, hex capital letters needed!
         if stellarium_uart.any(): 
             NextStar_cmd = stellarium_uart.read()
             NextStar_cmdchr0 = chr(NextStar_cmd[0])
@@ -393,7 +419,7 @@ async def readwrite_stellarium():
             except:
                 pass
         await asyncio.sleep(0.25)
-
+# 0.0092592593 steps per 0.1 seconds * 100 = 0.92592593 steps
 
 # ---------------- Main Program Loop ------------------
 async def main():
