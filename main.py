@@ -13,6 +13,8 @@ from stepper import Stepper
 g_my_latitude = 0.0
 g_my_longitude = 0.0
 g_my_altitude = 0.0
+g_gps_fix = False
+g_my_lst = 0.0
 g_alt_correction = 0.0
 g_pitch = 0
 g_roll = 0
@@ -35,18 +37,14 @@ ms12_pin_DEC = Pin(8, Pin.OUT, value=1)                 # Defines Pin MS1_2 as s
 # ---------------- Async: Read Serial Data from NEO-7M GPS ------------------
 async def read_gpsrmc():
 
-    global g_my_latitude, g_my_longitude, g_my_altitude
+    global g_my_latitude, g_my_longitude, g_my_altitude, g_gps_fix
     gps_input= UART(1,baudrate=9600, tx=Pin(4), rx=Pin(5))
     print(gps_input)
 
     FIX_STATUS = False
-
-    #Store GPS Coordinates
-    latitude = None
-    longitude = None
-    altitude = None
-    t_datetime = None
-    buff = None
+    buff = ''
+    latitude = 0.0
+    longitude = 0.0
 
     #Function to convert raw Latitude and Longitude to actual Latitude and Longitude
     def convertToDegree(RawDegrees):
@@ -66,9 +64,9 @@ async def read_gpsrmc():
                 buff = str(gps_input.readline())
                 if buff is not None :
                     break
-            parts = buff.split(',')
+            parts = buff.split(",")
             print(buff)
-            if (parts[0] == "b'$GPRMC" and len(parts) == 13 and parts[1] and parts[2] and parts[3] and parts[4] and parts[5] and parts[6] and parts[7] and parts[8] and parts[9]):
+            if (parts[0] == "b'$GPRMC" and len(parts) > 9 and parts[1] and parts[2] and parts[3] and parts[4] and parts[5] and parts[6] and parts[9]):
                 print("Message ID  : " + parts[0])
                 print("UTC time    : " + parts[1])
                 print("Pos. Status : " + parts[2])
@@ -77,7 +75,7 @@ async def read_gpsrmc():
                 print("Longitude   : " + parts[5])
                 print("E/W         : " + parts[6])
                 if (parts[2] == 'A'):                    # Test if GPS data is valid
-                    latitude >= convertToDegree(parts[3])
+                    latitude = convertToDegree(parts[3])
                     if (parts[4] == 'S'):
                         latitude = -float(latitude)
                     else:
@@ -92,6 +90,7 @@ async def read_gpsrmc():
                     g_my_latitude = latitude
                     g_my_longitude = longitude
                     FIX_STATUS = True
+                    g_gps_fix = True
 
                     year = int('20'+parts[9][4:6])      # create RTC set datetime variables
                     month = int(parts[9][2:4])
@@ -110,7 +109,91 @@ async def read_gpsrmc():
 
             
             await asyncio.sleep(0.1)
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.01)
+
+
+# ---------------- Async: Calculate Local Sidereal Time ------------------
+
+async def calculate_lst():
+    # Adopted from https://www.nies.ch/doc/astro/sternzeit.en.php
+
+    global g_my_lst
+
+    def julian_date(year, month, day, utc=0):
+        """
+        Returns the Julian date, number of days since 1 January 4713 BC 12:00.
+        utc is UTC in decimal hours. If utc=0, returns the date at 12:00 UTC.
+        """
+        if month > 2:
+            y = year
+            m = month
+        else:
+            y = year - 1
+            m = month + 12
+        d = day
+        h = utc/24
+        if year <= 1582 and month <= 10 and day <= 4:
+            # Julian calendar
+            b = 0
+        elif year == 1582 and month == 10 and day > 4 and day < 15:
+            # Gregorian calendar reform: 10 days (5 to 14 October 1582) were skipped.
+            # In 1582 after 4 October follows the 15 October.
+            d = 15
+            b = -10
+        else:
+            # Gregorian Calendar
+            a = int(y/100)
+            b = 2 - a + int(a/4)
+        jd = int(365.25*(y+4716)) + int(30.6001*(m+1)) + d + h + b - 1524.5
+        return(jd)
+
+
+    def siderial_time(year, month, day, utc=0, long=0):
+        """
+        Returns the siderial time in decimal hours. Longitude (long) is in 
+        decimal degrees. If long=0, return value is Greenwich Mean Siderial Time 
+        (GMST).
+        """
+        jd = julian_date(year, month, day)
+        t = (jd - 2451545.0)/36525
+        # Greenwich siderial time at 0h UTC (hours)
+        st = (24110.54841 + 8640184.812866 * t +
+            0.093104 * t**2 - 0.0000062 * t**3) / 3600
+        # Greenwich siderial time at given UTC
+        st = st + 1.00273790935*utc
+        # Local siderial time at given UTC (longitude in degrees)
+        st = st + long/15
+        st = st % 24
+        return(st)
+
+    rtc = RTC()
+
+    while True:
+        now = rtc.datetime()
+        year = now[0]
+        month = now[1]
+        day = now[2]
+        utc = now[4] + now[5]/60 + now[6]/3600
+
+        #long = 8.5
+        long = g_my_longitude
+
+        jd = julian_date(year, month, day)
+        jd_utc = julian_date(year, month, day, utc)
+        gmst = siderial_time(year, month, day, utc, 0)
+        lmst = siderial_time(year, month, day, utc, long)
+
+        g_my_lst = lmst
+
+        #print("My Longitude                       : ", long)
+        #print("Current date                       : ", year, month, day)
+        #print("Universal Time (UTC)               : ", utc)
+        #print("Julian Date (0h UTC)               : ", jd)
+        #print("Julian Date + UTC                  : ", jd_utc)
+        #print("Greenwich Mean Siderial Time (GMST): ", gmst)
+        #print("Local Mean Siderial Time (LMST)    : ", lmst)
+        
+        await asyncio.sleep(0.001)
 
 
 # ---------------- Async: Read Right Ascension and Declination Data from IMU ------------------
@@ -138,7 +221,7 @@ async def alt_correction():
     global g_alt_correction, g_alt_corrected
     #pushbutton = Pin(6, Pin.IN, Pin.PULL_UP)    # GPIO6 Digital Input IX0.0
     
-    while True:    
+    while True:
         alt_correction =  -1*g_pitch + g_my_latitude
         g_alt_correction = alt_correction
         print("alt_correction", alt_correction)
@@ -202,6 +285,8 @@ async def goto_position():
     ra_int_old = g_ra_int
     dec_int_old = g_dec_int
     counts = 0.0
+    utc_offset = False
+    utc_rasteps = 0
 
     step_pin_RA = 11
     dir_pin_RA = 10
@@ -210,15 +295,6 @@ async def goto_position():
     step_pin_DEC = 15
     dir_pin_DEC = 14
     stepper_DEC = Stepper(dir_pin_DEC, step_pin_DEC)
-
-    def calc_steps_utc():
-        rtc = RTC()
-        now = rtc.datetime()
-        inthr = now[4]
-        intmin = now[5]
-        intsec = now[6]
-        utcsteps = round(((inthr*3600 + intmin*60 + intsec)*49710)/2**32 * 8000)    # 2**32/(24*3600) = 49710 bits per second
-        return utcsteps
 
     def calc_steps_ra(int_old, int_new):
         if (int_old < 2**32/2 and int_new < 2**32/2) or (int_old >= 2**32/2 and int_new >= 2**32/2):
@@ -234,36 +310,21 @@ async def goto_position():
         elif int_old >= 2**32/2 and int_new < 2**32/2:
             steps = -round((0 + (int_old - int_new))/2**32 * 8000)
             return steps
-        
-    def calc_steps_dec(int_old, int_new):
-        if (int_old < 2**32/2 and int_new < 2**32/2) or (int_old >= 2**32/2 and int_new >= 2**32/2):
-            if int_new > int_old:
-                steps = -round((int_new - int_old)/2**32 * 8000)
-                return steps
-            elif int_new < int_old:
-                steps = round((int_old - int_new)/2**32 * 8000)
-                return steps
-        elif int_old < 2**32/2 and int_new >= 2**32/2:
-            steps = round((2**32 - (int_new - int_old))/2**32 * 8000)
-            return steps
-        elif int_old >= 2**32/2 and int_new < 2**32/2:
-            steps = -round((0 + (int_old - int_new))/2**32 * 8000)
-            return steps
 
-    """def calc_steps_dec(int_old, int_new):
+    def calc_steps_dec(int_old, int_new):
         if int_new > int_old:
-            steps = round(-(int_new - int_old)/2**32 * 8000)
+            steps = round((int_new - int_old)/2**32 * 8000)
             return steps
         elif int_new < int_old:
-            steps = round((int_old - int_new)/2**32 * 8000)
+            steps = round(-(int_old - int_new)/2**32 * 8000)
             return steps
         else:
-            pass"""
+            pass
 
     while True:
         if g_alt_corrected == True and g_scope_current == True and g_scope_sync == False and g_scope_slew == False:
             counts += 1
-            if g_precise_ra_dec != '00000000,C0000000' and counts >= 100:   # 0.0092592593 steps per 0.1 seconds * 100 = 0.92592593 steps per 1 second
+            if counts >= 100:   # 0.0092592593 steps per 0.1 seconds * 100 = 0.92592593 steps per 1 second
                 stepper_RA.move(1, 8000, 1)
                 counts = 0
             if g_joy_left == True:
@@ -276,13 +337,12 @@ async def goto_position():
                 stepper_DEC.move(1, 8000, 1)
             ra_hex = hex(ra_int_old)
             ra_hex = ra_hex[2:]
-            ra_hex = ('00000000' + ra_hex)[-8:]
+            ra_hex = ('00000000' + ra_hex)[-8:]                                             # Add leading zeros
             dec_hex = hex(dec_int_old)
             dec_hex = dec_hex[2:]
             dec_hex = ('00000000' + dec_hex)[-8:]
             g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
         elif g_scope_sync == True:
-            ra_int_old = g_ra_int
             dec_int_old = g_dec_int
             ra_hex = hex(ra_int_old)
             ra_hex = ra_hex[2:]
@@ -382,7 +442,6 @@ async def readwrite_stellarium():
 
     while True:
         precise_ra_dec = g_precise_ra_dec
-        #precise_ra_dec = '00000000,C0000000#' NexStar equatorial South Pole coordinates 0 hours, 270 degrees, hex capital letters needed!
         if stellarium_uart.any(): 
             NextStar_cmd = stellarium_uart.read()
             NextStar_cmdchr0 = chr(NextStar_cmd[0])
@@ -419,11 +478,12 @@ async def readwrite_stellarium():
             except:
                 pass
         await asyncio.sleep(0.25)
-# 0.0092592593 steps per 0.1 seconds * 100 = 0.92592593 steps
+
 
 # ---------------- Main Program Loop ------------------
 async def main():
     asyncio.create_task(read_gpsrmc())
+    asyncio.create_task(calculate_lst())
     asyncio.create_task(read_pitchroll())
     asyncio.create_task(alt_correction())
     asyncio.create_task(joystick())
@@ -434,7 +494,7 @@ async def main():
     while True:
         try:
             if True:
-                #print("Main program running")
+                print("Main program running, LSTime: ", g_my_lst)
                 await asyncio.sleep(1)   # Sleep for 1 seconds
         except OSError as e:
             print('Main error')
@@ -516,4 +576,17 @@ finally:
                 else:
                     print('No GPS fix')
             await asyncio.sleep(0.25)
-        await asyncio.sleep(0.25)"""
+        await asyncio.sleep(0.25)
+        
+                    if utc_offset == False and utc_rasteps < 2**32/2:                               # Add RA offset
+                utc_rasteps = calc_steps_utc()
+                ra_int_new = ra_int_new - utc_rasteps
+                utc_offset = True
+                print("ra_int_new", ra_int_new)
+            elif utc_offset == False and utc_rasteps >= 2**32/2:
+                utc_rasteps = calc_steps_utc()
+                ra_int_new = g_ra_int + (2**32/2 - utc_rasteps)
+                utc_offset = True
+                print("ra_int_new", ra_int_new)
+            else:
+                pass"""
