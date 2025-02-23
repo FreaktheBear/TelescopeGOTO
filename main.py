@@ -14,7 +14,11 @@ g_my_latitude = 0.0
 g_my_longitude = 0.0
 g_my_altitude = 0.0
 g_gps_fix = False
-g_my_lst = 0.0
+g_sid_day = 23.934472222
+g_lst = 0.0
+g_lst_hms = (0, 0, 0)
+g_lst_int = 0
+g_lha_hms = (0, 0, 0)
 g_alt_correction = 0.0
 g_pitch = 0
 g_roll = 0
@@ -117,7 +121,7 @@ async def read_gpsrmc():
 async def calculate_lst():
     # Adopted from https://www.nies.ch/doc/astro/sternzeit.en.php
 
-    global g_my_lst
+    global g_lst, g_lst_hms, g_lst_int
 
     def julian_date(year, month, day, utc=0):
         """
@@ -182,8 +186,15 @@ async def calculate_lst():
         jd_utc = julian_date(year, month, day, utc)
         gmst = siderial_time(year, month, day, utc, 0)
         lmst = siderial_time(year, month, day, utc, long)
+        lmst_h = int(lmst)
+        lmst_m = int((lmst - lmst_h)*60)
+        lmst_s = int((lmst - lmst_h - lmst_m/60)*3600)
+        lmst_hms = (lmst_h, lmst_m, lmst_s)
 
-        g_my_lst = lmst
+        g_lst = lmst
+        #g_lst_deg = lmst * 15 + 23.934472222/24 * 15
+        g_lst_hms = lmst_hms
+        g_lst_int = int(round((lmst/24) * 2**32))
 
         #print("My Longitude                       : ", long)
         #print("Current date                       : ", year, month, day)
@@ -280,61 +291,121 @@ async def joystick():
 
 # ---------------- Async: GOTO possition ------------------
 async def goto_position():
-    global g_precise_ra_dec
+    global g_precise_ra_dec, g_lha_hms
 
     ra_int_old = g_ra_int
+    ra_int_new = g_ra_int
+    lha_int_old = 0
+    lha_int_new = 0
+    lha_int_12h = 2**32/2
+    lha_abs_old = 0
+    lha_abs_new = 0
+    dec_int_180 = 2**32/2
     dec_int_old = g_dec_int
+
     counts = 0.0
+    sid_sec_cnt = 928                 # Steps per sidereal day second = (1/23.934472222 * 8000)/3600 = 0.928460933
     utc_offset = False
     utc_rasteps = 0
 
-    step_pin_RA = 11
-    dir_pin_RA = 10
-    stepper_RA = Stepper(dir_pin_RA, step_pin_RA)
+    step_pin_ra = 11
+    dir_pin_ra = 10
+    stepper_ra = Stepper(dir_pin_ra, step_pin_ra)
 
-    step_pin_DEC = 15
-    dir_pin_DEC = 14
-    stepper_DEC = Stepper(dir_pin_DEC, step_pin_DEC)
+    step_pin_dec = 15
+    dir_pin_dec = 14
+    stepper_dec = Stepper(dir_pin_dec, step_pin_dec)
 
-    def calc_steps_ra(int_old, int_new):
-        if (int_old < 2**32/2 and int_new < 2**32/2) or (int_old >= 2**32/2 and int_new >= 2**32/2):
-            if int_new > int_old:
-                steps = -round((int_new - int_old)/2**32 * 8000)
+            
+    def lha_abs_calc(int_lha):
+
+        if int_lha < 0:
+            int_lha_abs = int_lha + 2**32
+            return int_lha_abs
+        elif int_lha > 0:
+            int_lha_abs = int_lha
+            return int_lha_abs
+        else:
+            int_lha_abs = 0
+            return int_lha_abs
+    
+
+    def lha_hms_calc(lha_abs):
+
+        lha_h = int(lha_abs/2**32 * 24)
+        lha_m = int((lha_abs/2**32 * 24 - lha_h)*60)
+        lha_s = int((lha_abs/2**32 * 24 - lha_h - lha_m/60)*3600)
+        lha_hms = (lha_h, lha_m, lha_s)
+        return lha_hms
+
+
+    def ra_steps_calc(lha_old_abs, lha_new_abs):
+
+        if lha_int_12h < lha_new_abs < 2**32 and lha_old_abs == 0:
+            steps = round((2**32 - lha_new_abs)/2**32 * 8000)
+            return steps
+        elif lha_int_12h < lha_new_abs < 2**32 and lha_int_12h < lha_old_abs < 2**32 and lha_abs_old != 0:
+            if lha_abs_new > lha_abs_old:
+                steps = -round((lha_abs_new - lha_abs_old)/2**32 * 8000)
                 return steps
-            elif int_new < int_old:
-                steps = round((int_old - int_new)/2**32 * 8000)
+            elif lha_new_abs <= lha_abs_old:
+                steps = round((lha_abs_old - lha_abs_new)/2**32 * 8000)
                 return steps
-        elif int_old < 2**32/2 and int_new >= 2**32/2:
-            steps = round((2**32 - (int_new - int_old))/2**32 * 8000)
-            return steps
-        elif int_old >= 2**32/2 and int_new < 2**32/2:
-            steps = -round((0 + (int_old - int_new))/2**32 * 8000)
-            return steps
-
-    def calc_steps_dec(int_old, int_new):
-        if int_new > int_old:
-            steps = round((int_new - int_old)/2**32 * 8000)
-            return steps
-        elif int_new < int_old:
-            steps = round(-(int_old - int_new)/2**32 * 8000)
+        elif 0 < lha_new_abs < lha_int_12h and lha_old_abs == 0:
+            steps = -round(lha_new_abs/2**32 * 8000)
             return steps
         else:
-            pass
+            steps = 0
+            return steps
+
+
+    def dec_steps_calc(lha_new_abs, lha_old_abs, int_old_dec, int_new_dec):
+
+        if lha_int_12h < lha_new_abs < 2**32 and lha_int_12h < lha_old_abs < 2**32:
+            if dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec > int_old_dec:
+                steps = -round((int_new_dec - int_old_dec)/2**32 * 8000)
+                return steps
+            elif dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec <= int_old_dec:
+                steps = round((int_old_dec - int_new_dec)/2**32 * 8000)
+                return steps
+            elif dec_int_180 < int_old_dec < 2**32 and 0 < int_new_dec < dec_int_180:
+                steps = -round((2**32 - int_old_dec + int_new_dec)/2**32 * 8000)
+                return steps
+            elif dec_int_180 < int_new_dec < 2**32 and 0 < int_old_dec < dec_int_180:
+                steps = round((2**32 - int_new_dec + int_old_dec)/2**32 * 8000)
+                return steps
+            else:
+                steps = 0
+                return steps
+        elif 0 < lha_new_abs < lha_int_12h:
+            if int_new_dec > int_old_dec:
+                steps = round((int_new_dec - int_old_dec)/2**32 * 8000)
+                return steps
+            elif int_new_dec <= int_old_dec:
+                steps = -round((int_old_dec - int_new_dec)/2**32 * 8000)
+                return steps
+            else:
+                steps = 0
+                return steps
+            
 
     while True:
         if g_alt_corrected == True and g_scope_current == True and g_scope_sync == False and g_scope_slew == False:
             counts += 1
-            if counts >= 100:   # 0.0092592593 steps per 0.1 seconds * 100 = 0.92592593 steps per 1 second
-                stepper_RA.move(1, 8000, 1)
+            if counts >= sid_sec_cnt:                    
+                stepper_ra.move(1, 8000, 1)
                 counts = 0
             if g_joy_left == True:
-                stepper_RA.move(-1, 8000, 1)
+                stepper_ra.move(-1, 8000, 1)
             elif g_joy_right == True:
-                stepper_RA.move(1, 8000, 1)
+                stepper_ra.move(1, 8000, 1)
             elif g_joy_up == True:
-                stepper_DEC.move(-1, 8000, 1)
+                stepper_dec.move(-1, 8000, 1)
             elif g_joy_down == True:
-                stepper_DEC.move(1, 8000, 1)
+                stepper_dec.move(1, 8000, 1)
+            lha_int_old = g_lst_int - ra_int_old
+            lha_abs_old = lha_abs_calc(lha_int_old)
+            g_lha_hms = lha_hms_calc(lha_abs_old)
             ra_hex = hex(ra_int_old)
             ra_hex = ra_hex[2:]
             ra_hex = ('00000000' + ra_hex)[-8:]                                             # Add leading zeros
@@ -342,7 +413,36 @@ async def goto_position():
             dec_hex = dec_hex[2:]
             dec_hex = ('00000000' + dec_hex)[-8:]
             g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
+        elif g_scope_slew == True:
+            if ra_int_old == 0:
+                ra_int_old = g_lst_int
+            lha_int_old = g_lst_int - ra_int_old
+            lha_abs_old = lha_abs_calc(lha_int_old)
+            print("lha_abs_old", lha_abs_old)
+            ra_int_new = g_ra_int
+            lha_int_new = g_lst_int - ra_int_new
+            lha_abs_new = lha_abs_calc(lha_int_new)
+            print("lha_abs_new", lha_abs_new)
+            g_lha_hms = lha_hms_calc(lha_abs_new)
+            ra_steps = ra_steps_calc(lha_abs_old, lha_abs_new)
+            print("ra_steps", ra_steps)
+            stepper_ra.move(ra_steps, 8000, 2)
+            ra_int_old = ra_int_new
+            lha_abs_old = lha_abs_new
+            ra_hex = hex(ra_int_old)
+            ra_hex = ra_hex[2:]
+            ra_hex = ('00000000' + ra_hex)[-8:]
+            dec_int_new = g_dec_int
+            dec_steps = dec_steps_calc(lha_abs_new, lha_abs_old, dec_int_old, dec_int_new)
+            print("dec_steps", dec_steps)
+            stepper_dec.move(dec_steps, 8000, 2)
+            dec_int_old = dec_int_new
+            dec_hex = hex(dec_int_new)
+            dec_hex = dec_hex[2:]
+            dec_hex = ('00000000' + dec_hex)[-8:]
+            g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
         elif g_scope_sync == True:
+            ra_int_old = g_ra_int
             dec_int_old = g_dec_int
             ra_hex = hex(ra_int_old)
             ra_hex = ra_hex[2:]
@@ -351,25 +451,9 @@ async def goto_position():
             dec_hex = dec_hex[2:]
             dec_hex = ('00000000' + dec_hex)[-8:]
             g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
-        elif g_scope_slew == True:
-            ra_int_new = g_ra_int
-            ra_steps = calc_steps_ra(ra_int_old, ra_int_new)
-            stepper_RA.move(ra_steps, 8000, 2)
-            dec_int_new = g_dec_int
-            dec_steps = calc_steps_dec(dec_int_old, dec_int_new)
-            stepper_DEC.move(dec_steps, 8000, 2)
-            ra_int_old = ra_int_new
-            dec_int_old = dec_int_new
-            ra_hex = hex(ra_int_new)
-            ra_hex = ra_hex[2:]
-            ra_hex = ('00000000' + ra_hex)[-8:]
-            dec_hex = hex(dec_int_new)
-            dec_hex = dec_hex[2:]
-            dec_hex = ('00000000' + dec_hex)[-8:]
-            g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
         else:
             pass
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.01)
 
 
 # ---------------- Async: OLED Readout ------------------
@@ -435,7 +519,7 @@ async def readwrite_stellarium():
     print(stellarium_uart)
     #LX200 format does not work for micropython due to special character used
     #NexStar format
-    #'00000000,C0000000#' #Equatorial South Pole coordinates 0 hours, 270 degrees in Nexstar values, hex capital letters needed!
+    #'00000000,C0000000#' #Equatorial South Pole coordinates 0 hours, 270 (-90) degrees in Nexstar values equals, hex capital letters needed!
 
     NextStar_cmd = None
     NextStar_cmdchr0 = None
@@ -494,7 +578,7 @@ async def main():
     while True:
         try:
             if True:
-                print("Main program running, LSTime: ", g_my_lst)
+                print("Main program running, LSTime, LHATime: ", g_lst_hms, g_lha_hms)
                 await asyncio.sleep(1)   # Sleep for 1 seconds
         except OSError as e:
             print('Main error')
@@ -576,17 +660,25 @@ finally:
                 else:
                     print('No GPS fix')
             await asyncio.sleep(0.25)
-        await asyncio.sleep(0.25)
-        
-                    if utc_offset == False and utc_rasteps < 2**32/2:                               # Add RA offset
-                utc_rasteps = calc_steps_utc()
-                ra_int_new = ra_int_new - utc_rasteps
-                utc_offset = True
-                print("ra_int_new", ra_int_new)
+        await asynciolha_h = int(lha_abs_old/2**32 * 24)
+            lha_m = int((lha_abs_old/2**32 * 24 - lha_h)*60)
+            lha_s = int((lha_abs_old/2**32 * 24 - lha_h - lha_m/60)*3600)("ra_int_new", ra_int_new)
             elif utc_offset == False and utc_rasteps >= 2**32/2:
                 utc_rasteps = calc_steps_utc()
                 ra_int_new = g_ra_int + (2**32/2 - utc_rasteps)
                 utc_offset = True
                 print("ra_int_new", ra_int_new)
             else:
-                pass"""
+                pass
+            
+            ra_deg_new = ra_int_new/2**32 * 360
+            ra_deg_h = int(ra_deg_new/15)
+            ra_deg_m = int((ra_deg_new/15 - ra_deg_h)*60)
+            ra_deg_s = int((ra_deg_new/15 - ra_deg_h - ra_deg_m/60)*3600)
+            ra_deg_hms = (ra_deg_h, ra_deg_m, ra_deg_s)
+            print("ra_deg_hms", ra_deg_hms)
+
+            lha_h = int(lha_abs_old/2**32 * 24)
+            lha_m = int((lha_abs_old/2**32 * 24 - lha_h)*60)
+            lha_s = int((lha_abs_old/2**32 * 24 - lha_h - lha_m/60)*3600)
+            g_lha_hms = (lha_h, lha_m, lha_s)"""

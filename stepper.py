@@ -2,6 +2,11 @@ from machine import Pin, Timer
 import utime
  
 class Stepper:
+
+    steps = 0
+    delay = 0
+    accel = 0
+
     def __init__(self, dir_pin, step_pin):
         self.dir_pin = Pin(dir_pin, Pin.OUT)
         self.step_pin = Pin(step_pin, Pin.OUT)
