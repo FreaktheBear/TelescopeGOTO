@@ -302,6 +302,7 @@ async def goto_position():
     lha_int_18h = 2**32-2**32/4
     lha_abs_old = 0
     lha_abs_new = 0
+    dec_int_90 = 2**32/4
     dec_int_180 = 2**32/2
     dec_int_old = g_dec_int
 
@@ -343,11 +344,15 @@ async def goto_position():
 
     def ra_steps_calc(lha_old_abs, lha_new_abs):
 
-        # Initial start moving from the meridian (quadrants 1-2)
+        # Initial start, moving from the meridian (quadrants 1-2)
         if 0 < lha_new_abs < lha_int_12h and lha_old_abs == 0:
             steps = -round((lha_int_6h - lha_new_abs)/2**32 * 8000)
             return steps
-        # Moving between both old an new objects moving from the meridian (quadrants 3-4)
+        # Initial start, approaching the meridian (quadrants 3-4)
+        elif lha_int_12h < lha_new_abs < 2**32 and lha_old_abs == 0:
+            steps = -round((lha_int_18h - lha_new_abs)/2**32 * 8000)
+            return steps
+        # Moving between both old an new objects moving from the meridian (quadrants 1-2)
         elif 0 < lha_new_abs < lha_int_12h and 0 < lha_old_abs < lha_int_12h and lha_abs_old != 0:
             if lha_abs_new > lha_abs_old:
                 steps = round((lha_abs_new - lha_abs_old)/2**32 * 8000)
@@ -355,10 +360,6 @@ async def goto_position():
             elif lha_new_abs <= lha_abs_old:
                 steps = -round((lha_abs_old - lha_abs_new)/2**32 * 8000)
                 return steps
-        # Initial start approaching the meridian (quadrants 3-4)
-        elif lha_int_12h < lha_new_abs < 2**32 and lha_old_abs == 0:
-            steps = -round((lha_int_18h - lha_new_abs)/2**32 * 8000)
-            return steps
         # Moving between both old an new objects approaching the meridian (quadrants 3-4)
         elif lha_int_12h < lha_new_abs < 2**32 and lha_int_12h < lha_old_abs < 2**32 and lha_abs_old != 0:
             if lha_abs_new > lha_abs_old:
@@ -367,6 +368,14 @@ async def goto_position():
             elif lha_new_abs <= lha_abs_old:
                 steps = round((lha_abs_new - lha_abs_old)/2**32 * 8000)
                 return steps
+        # Moving between two objects from quadrant 1-2 to 3-4
+        elif 0 < lha_old_abs < lha_int_12h and lha_int_12h < lha_new_abs < 2**32 and lha_abs_old != 0:
+            steps = -round((lha_abs_old + (2**32 - lha_abs_new))/2**32 * 8000)
+            return steps
+        # Moving between two objects from quadrant 3-4 to 1-2
+        elif lha_int_12h < lha_old_abs < 2**32 and 0 < lha_new_abs < lha_int_12h and lha_abs_old != 0:
+            steps = round((lha_abs_new + (2**32 - lha_abs_old))/2**32 * 8000)
+            return steps
         else:
             steps = 0
             return steps
@@ -374,23 +383,8 @@ async def goto_position():
 
     def dec_steps_calc(lha_new_abs, lha_old_abs, int_old_dec, int_new_dec):
 
-        if lha_int_12h < lha_new_abs < 2**32 and lha_int_12h < lha_old_abs < 2**32:
-            if dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec > int_old_dec:
-                steps = -round((int_new_dec - int_old_dec)/2**32 * 8000)
-                return steps
-            elif dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec <= int_old_dec:
-                steps = round((int_old_dec - int_new_dec)/2**32 * 8000)
-                return steps
-            elif dec_int_180 < int_old_dec < 2**32 and 0 < int_new_dec < dec_int_180:
-                steps = -round((2**32 - int_old_dec + int_new_dec)/2**32 * 8000)
-                return steps
-            elif dec_int_180 < int_new_dec < 2**32 and 0 < int_old_dec < dec_int_180:
-                steps = round((2**32 - int_new_dec + int_old_dec)/2**32 * 8000)
-                return steps
-            else:
-                steps = 0
-                return steps
-        elif 0 < lha_new_abs < lha_int_12h and 0 < lha_old_abs < lha_int_12h:
+        # Moving between both old an new objects moving from the meridian (quadrants 1-2)
+        if 0 < lha_new_abs < lha_int_12h and (0 < lha_old_abs < lha_int_12h or lha_old_abs == 0):
             if dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec > int_old_dec:
                 steps = -round((int_old_dec - int_new_dec)/2**32 * 8000)
                 return steps
@@ -403,10 +397,53 @@ async def goto_position():
             elif dec_int_180 < int_new_dec < 2**32 and 0 < int_old_dec < dec_int_180:
                 steps = -round((2**32 - int_new_dec + int_old_dec)/2**32 * 8000)
                 return steps
-            else:
-                steps = 0
+        # Moving between both old an new objects approaching the meridian (quadrants 3-4)
+        elif lha_int_12h < lha_new_abs < 2**32 and (lha_int_12h < lha_old_abs < 2**32 or lha_old_abs == 0):
+            if dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec > int_old_dec:
+                steps = -round((int_new_dec - int_old_dec)/2**32 * 8000)
                 return steps
-            
+            elif dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec <= int_old_dec:
+                steps = round((int_old_dec - int_new_dec)/2**32 * 8000)
+                return steps
+            elif dec_int_180 < int_old_dec < 2**32 and 0 < int_new_dec < dec_int_180:
+                steps = -round((2**32 - int_old_dec + int_new_dec)/2**32 * 8000)
+                return steps
+            elif dec_int_180 < int_new_dec < 2**32 and 0 < int_old_dec < dec_int_180:
+                steps = round((2**32 - int_new_dec + int_old_dec)/2**32 * 8000)
+                return steps
+        # Moving between two objects from quadrant 1-2 to 3-4
+        elif 0 < lha_old_abs < lha_int_12h and lha_int_12h < lha_new_abs < 2**32:
+            if dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec < int_old_dec:
+                steps = -round((int_old_dec - (dec_int_180 + 2**32 - int_old_dec) - (int_old_dec - int_new_dec))/2**32 * 8000)
+                return steps
+            elif dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec > int_old_dec:
+                steps = -round((int_old_dec - (dec_int_180 + 2**32 - int_old_dec) + (int_new_dec - int_old_dec))/2**32 * 8000)
+                return steps
+            else:
+                steps = 100
+                return steps
+        # Moving between two objects from quadrant 3-4 to 1-2
+        elif lha_int_12h < lha_old_abs < 2**32 and 0 < lha_new_abs < lha_int_12h:
+            if dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec < int_old_dec:
+                steps = round((int_old_dec - (dec_int_180 + 2**32 - int_old_dec) - (int_old_dec - int_new_dec))/2**32 * 8000)
+                return steps
+            elif dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec > int_old_dec:
+                steps = round((int_old_dec - (dec_int_180 + 2**32 - int_old_dec) + (int_new_dec - int_old_dec))/2**32 * 8000)
+                return steps
+            else:
+                steps = 100
+                return steps
+        else:
+            steps = 0
+            return steps
+
+
+    def hex_convert(int_value):
+        hex_value = hex(int_value)
+        hex_value = hex_value[2:]
+        hex_value = ('00000000' + hex_value)[-8:]
+        return hex_value
+
 
     while True:
         if g_alt_corrected == True and g_scope_current == True and g_scope_sync == False and g_scope_slew == False:
@@ -425,12 +462,8 @@ async def goto_position():
             lha_int_old = g_lst_int - ra_int_old
             lha_abs_old = lha_abs_calc(lha_int_old)
             g_lha_hms = lha_hms_calc(lha_abs_old)
-            ra_hex = hex(ra_int_old)
-            ra_hex = ra_hex[2:]
-            ra_hex = ('00000000' + ra_hex)[-8:]                                             # Add leading zeros
-            dec_hex = hex(dec_int_old)
-            dec_hex = dec_hex[2:]
-            dec_hex = ('00000000' + dec_hex)[-8:]
+            ra_hex = hex_convert(ra_int_old)
+            dec_hex = hex_convert(dec_int_old)
             g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
         elif g_scope_slew == True:
             if ra_int_old == 0:
@@ -446,29 +479,23 @@ async def goto_position():
             ra_steps = ra_steps_calc(lha_abs_old, lha_abs_new)
             print("ra_steps", ra_steps)
             stepper_ra.move(ra_steps, 8000, 2)
-            ra_int_old = ra_int_new
-            lha_abs_old = lha_abs_new
-            ra_hex = hex(ra_int_old)
-            ra_hex = ra_hex[2:]
-            ra_hex = ('00000000' + ra_hex)[-8:]
+            print("dec_int_old", dec_int_old)
             dec_int_new = g_dec_int
+            print("dec_int_new", dec_int_new)
             dec_steps = dec_steps_calc(lha_abs_new, lha_abs_old, dec_int_old, dec_int_new)
             print("dec_steps", dec_steps)
             stepper_dec.move(dec_steps, 8000, 2)
+            ra_int_old = ra_int_new
+            lha_abs_old = lha_abs_new
+            ra_hex = hex_convert(ra_int_old)
             dec_int_old = dec_int_new
-            dec_hex = hex(dec_int_new)
-            dec_hex = dec_hex[2:]
-            dec_hex = ('00000000' + dec_hex)[-8:]
+            dec_hex = hex_convert(dec_int_old)
             g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
         elif g_scope_sync == True:
             ra_int_old = g_ra_int
             dec_int_old = g_dec_int
-            ra_hex = hex(ra_int_old)
-            ra_hex = ra_hex[2:]
-            ra_hex = ('00000000' + ra_hex)[-8:]
-            dec_hex = hex(dec_int_old)
-            dec_hex = dec_hex[2:]
-            dec_hex = ('00000000' + dec_hex)[-8:]
+            ra_hex = hex_convert(ra_int_old)
+            dec_hex = hex_convert(dec_int_old)
             g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
         else:
             pass
@@ -611,93 +638,29 @@ finally:
     asyncio.new_event_loop() #Create a new event loop
 
 
-"""async def read_gps():
-
-    global g_my_latitude, g_my_longitude, g_my_altitude
-    gps_input= UART(1,baudrate=9600, tx=Pin(4), rx=Pin(5))
-    print(gps_input)
-
-    FIX_STATUS = False
-
-    #Store GPS Coordinates
-    latitude = None
-    longitude = None
-    altitude = None
-    satellites = None
-    gpsTime = None
-
-    #Function to convert raw Latitude and Longitude to actual Latitude and Longitude
-    def convertToDegree(RawDegrees):
-
-        RawAsFloat = float(RawDegrees)
-        firstdigits = int(RawAsFloat/100) #degrees
-        nexttwodigits = RawAsFloat - float(firstdigits*100) #minutes
-        
-        Converted = float(firstdigits + nexttwodigits/60.0)
-        Converted = '{0:.6f}'.format(Converted) # to 6 decimal places
-        #return str(Converted)
-        return Converted
-
-    while True:
-        while FIX_STATUS == False:
-            print("Waiting for GPS data")
-            while True:
-                buff = str(gps_input.readline())
-                if buff is not None :
-                    break
-            parts = buff.split(',')
-            #print(buff)
-            if (parts[0] == "b'$GPGGA" and len(parts) == 15 and parts[1] and parts[2] and parts[3] and parts[4] and parts[5] and parts[6] and parts[7]):
-                #print("Message ID  : " + parts[0])
-                #print("UTC time    : " + parts[1])
-                #print("Latitude    : " + parts[2])
-                #print("N/S         : " + parts[3])
-                #print("Longitude   : " + parts[4])
-                #print("E/W         : " + parts[5])
-                print("Position Fix: " + parts[6])
-                #print("n sat       : " + parts[7])
-                if (parts[6] == '1' or parts[6] == '2'):
-                    latitude = convertToDegree(parts[2])
-                    if (parts[3] == 'S'):
-                        latitude = -float(latitude)
-                    else:
-                        latitude = float(latitude)
-                    longitude = convertToDegree(parts[4])
-                    if (parts[5] == 'W'):
-                        longitude = -float(longitude)
-                    else:
-                        longitude = float(longitude)
-                    satellites = parts[7]
-                    gpsTime = parts[1][0:2] + ":" + parts[1][2:4] + ":" + parts[1][4:6]
-                    print(latitude)
-                    print(longitude)
-                    print(satellites)
-                    print(gpsTime)
-                    g_my_latitude = latitude
-                    g_my_longitude = longitude
-                    FIX_STATUS = True
-                else:
-                    print('No GPS fix')
-            await asyncio.sleep(0.25)
-        await asynciolha_h = int(lha_abs_old/2**32 * 24)
-            lha_m = int((lha_abs_old/2**32 * 24 - lha_h)*60)
-            lha_s = int((lha_abs_old/2**32 * 24 - lha_h - lha_m/60)*3600)("ra_int_new", ra_int_new)
-            elif utc_offset == False and utc_rasteps >= 2**32/2:
-                utc_rasteps = calc_steps_utc()
-                ra_int_new = g_ra_int + (2**32/2 - utc_rasteps)
-                utc_offset = True
-                print("ra_int_new", ra_int_new)
-            else:
-                pass
-            
-            ra_deg_new = ra_int_new/2**32 * 360
-            ra_deg_h = int(ra_deg_new/15)
-            ra_deg_m = int((ra_deg_new/15 - ra_deg_h)*60)
-            ra_deg_s = int((ra_deg_new/15 - ra_deg_h - ra_deg_m/60)*3600)
-            ra_deg_hms = (ra_deg_h, ra_deg_m, ra_deg_s)
-            print("ra_deg_hms", ra_deg_hms)
-
-            lha_h = int(lha_abs_old/2**32 * 24)
-            lha_m = int((lha_abs_old/2**32 * 24 - lha_h)*60)
-            lha_s = int((lha_abs_old/2**32 * 24 - lha_h - lha_m/60)*3600)
-            g_lha_hms = (lha_h, lha_m, lha_s)"""
+"""        elif g_scope_slew == True:
+            if ra_int_old == 0:
+                ra_int_old = g_lst_int
+            lha_int_old = g_lst_int - ra_int_old
+            lha_abs_old = lha_abs_calc(lha_int_old)
+            print("lha_abs_old", lha_abs_old)
+            ra_int_new = g_ra_int
+            lha_int_new = g_lst_int - ra_int_new
+            lha_abs_new = lha_abs_calc(lha_int_new)
+            print("lha_abs_new", lha_abs_new)
+            g_lha_hms = lha_hms_calc(lha_abs_new)
+            ra_steps = ra_steps_calc(lha_abs_old, lha_abs_new)
+            print("ra_steps", ra_steps)
+            stepper_ra.move(ra_steps, 8000, 2)
+            ra_int_old = ra_int_new
+            lha_abs_old = lha_abs_new
+            ra_hex = hex_convert(ra_int_old)
+            print("dec_int_old", dec_int_old)
+            dec_int_new = g_dec_int
+            print("dec_int_new", dec_int_new)
+            dec_steps = dec_steps_calc(lha_abs_new, lha_abs_old, dec_int_old, dec_int_new)
+            print("dec_steps", dec_steps)
+            stepper_dec.move(dec_steps, 8000, 2)
+            dec_int_old = dec_int_new
+            dec_hex = hex_convert(dec_int_old)
+            g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')"""
