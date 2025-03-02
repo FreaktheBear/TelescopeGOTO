@@ -59,3 +59,31 @@ Installed stepper motors on a equatorial mount and designed a control unit for m
 ![control3](images/control3.png)
 
 ![tiltsensor1](images/tiltsensor1.png)
+
+## Components Used
+
+1. Raspberry Pi 4B with RPI Bookworm OS and Stellarium; I used a Raspberry Pi 4B as I want to make the whole setup portable and have the serial connection from the GPIO to the Pi Pico GPIO. The Raspberry Pi 4B also communicates with a GPS module to provide location services for Stellarium without the need for an internet connection. See the following instructions on how to install Stellarium on Bookworm via the official Stellarium Ubuntu PPA https://github.com/Stellarium/stellarium/discussions/3943 
+2. NEO-7 u-blox GPS; First I tried to use the NEO-6 but could hardly get a fix with these devices which ended in a lot of frustration. The NEO-7 performs way better. https://www.jaycar.co.nz/arduino-compatible-gps-receiver-module/p/XC3710 The GPS has a USB serial UART and a PIN based UART. In this way the USB connection can be used to provide GPS services to the RPI 4B, and the PIN connection can be utilized for the serial connection to the Pico. Make sure that you install GPSD services on Bookworm so that there is a GPS daemon running which can be accessed by Stellarium. Type: "sudo apt install -y gpsd gpsd-clients" in a terminal session. Edit the file /etc/default/gpsd with the following settings:
+```
+ # Devices gpsd should collect to at boot time.
+ START_DAEMON="true"
+
+ # They need to be read/writeable, either by user gpsd or the group dialout.
+ DEVICES="ttyACM0"
+
+ # Other options you want to pass to gpsd
+ GPSD_OPTIONS="-G"
+
+ # Automatically hot add/remove USB GPS devices via gpsdctl
+ USBAUTO="true"
+ ```
+ You shouldn't have to build a separate udev rule as the u-blox NEO-7 is configured under /lib/udev/rules.d/60-gpsd.rules:
+ ```
+ # u-blox AG, u-blox 7 [linux module: cdc_acm]
+ etc
+ ```
+ 3. Raspberry Pi Pico; I used the first generation Pi Pico, and probably the second generation will also work but this hasn't been tested. Personally I have setup VSCODE on my Ubuntu 24.04.2 LTS system, with the MicroPico extension from Paul Ober. In this way development is much easier with the Github integration. Of course you can use Thonny IDE if you prefer that. A remark with regards to the VSCODE option, I wasn't able to use special characters within the VSCODE editor. Initially I wanted to use the Meade LX-200 telescope protocol but changed to the Nexstar protocol which doesn't use special characters.
+ 4. Stepper motors; Any regular NEMA-17 stepper motors will do.
+ 5. A4988 stepper motor drivers; Make sure you set the correct current limit. There are several sites we address this topic.
+ 6. SSD1306 OLED I2C 128x64 Display; I used the Soft I2C protocol which gave me the best results.
+ 7. Arduino Compatible X and Y Axis Joystick Module; I have added a joystick to be able to manually move the telescope to fine-tune positioning. If I have a fully working telescope control I might create a menu and star database so that the telescope can be used without Stellarium interaction.

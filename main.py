@@ -230,7 +230,6 @@ async def read_pitchroll():
 # ---------------- Async: Set Altitude Correction ------------------
 async def alt_correction():
     global g_alt_correction, g_alt_corrected
-    #pushbutton = Pin(6, Pin.IN, Pin.PULL_UP)    # GPIO6 Digital Input IX0.0
     
     while True:
         alt_correction =  -1*g_pitch + g_my_latitude
@@ -307,7 +306,7 @@ async def goto_position():
     dec_int_old = g_dec_int
 
     counts = 0.0
-    sid_sec_cnt = 928                 # Steps per sidereal day second = (1/23.934472222 * 8000)/3600 = 0.928460933
+    sid_sec_cnt = 928                 # counter value for sidereal day second = (1/23.934472222 * 8000)/3600 = 0.928460933
     utc_offset = False
     utc_rasteps = 0
 
@@ -352,6 +351,14 @@ async def goto_position():
         elif lha_int_12h < lha_new_abs < 2**32 and lha_old_abs == 0:
             steps = -round((lha_int_18h - lha_new_abs)/2**32 * 8000)
             return steps
+        # In progeress! Not working yet! Moving between two objects from quadrant 1-2 to 3-4
+        elif 0 < lha_old_abs < lha_int_12h and lha_int_12h < lha_new_abs < 2**32 and lha_abs_old != 0:
+            steps = round((lha_abs_old + (2**32 - lha_abs_new))/2**32 * 8000)
+            return steps
+        # In progerss! Not working yet! Moving between two objects from quadrant 3-4 to 1-2
+        elif lha_int_12h < lha_old_abs < 2**32 and 0 < lha_new_abs < lha_int_12h and lha_abs_old != 0:
+            steps = -round((lha_abs_new + (2**32 - lha_abs_old))/2**32 * 8000)
+            return steps
         # Moving between both old an new objects moving from the meridian (quadrants 1-2)
         elif 0 < lha_new_abs < lha_int_12h and 0 < lha_old_abs < lha_int_12h and lha_abs_old != 0:
             if lha_abs_new > lha_abs_old:
@@ -368,14 +375,6 @@ async def goto_position():
             elif lha_new_abs <= lha_abs_old:
                 steps = round((lha_abs_new - lha_abs_old)/2**32 * 8000)
                 return steps
-        # Moving between two objects from quadrant 1-2 to 3-4
-        elif 0 < lha_old_abs < lha_int_12h and lha_int_12h < lha_new_abs < 2**32 and lha_abs_old != 0:
-            steps = -round((lha_abs_old + (2**32 - lha_abs_new))/2**32 * 8000)
-            return steps
-        # Moving between two objects from quadrant 3-4 to 1-2
-        elif lha_int_12h < lha_old_abs < 2**32 and 0 < lha_new_abs < lha_int_12h and lha_abs_old != 0:
-            steps = round((lha_abs_new + (2**32 - lha_abs_old))/2**32 * 8000)
-            return steps
         else:
             steps = 0
             return steps
@@ -425,7 +424,7 @@ async def goto_position():
         # Moving between two objects from quadrant 3-4 to 1-2
         elif lha_int_12h < lha_old_abs < 2**32 and 0 < lha_new_abs < lha_int_12h:
             if dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec < int_old_dec:
-                steps = round((int_old_dec - (dec_int_180 + 2**32 - int_old_dec) - (int_old_dec - int_new_dec))/2**32 * 8000)
+                steps = -round((int_old_dec - (dec_int_180 + 2**32 - int_old_dec) - (int_old_dec - int_new_dec))/2**32 * 8000)
                 return steps
             elif dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec > int_old_dec:
                 steps = round((int_old_dec - (dec_int_180 + 2**32 - int_old_dec) + (int_new_dec - int_old_dec))/2**32 * 8000)
@@ -503,7 +502,6 @@ async def goto_position():
 
 
 # ---------------- Async: OLED Readout ------------------
-
 async def oled():
     WIDTH  = 128                                            # oled display width
     HEIGHT = 64                                             # oled display height
@@ -512,6 +510,31 @@ async def oled():
     i2c = SoftI2C(scl=Pin(3), sda=Pin(2))
 
     oled = SSD1306_I2C(WIDTH, HEIGHT, i2c)          # Init oled display
+
+
+    def oled_ra(ra_int):
+        ra_deg = (ra_int/2**32)*24
+        ra_decimal , ra_hours = math.modf(ra_deg)
+        ra_hour_str = str('%02d' %ra_hours)
+        ra_minsec = ra_decimal*60
+        ra_seconds, ra_min = math.modf(ra_minsec)
+        ra_min_str = str('%02d' %ra_min)
+        ra_sec = ra_seconds*60
+        ra_sec_str = str(round(ra_sec, 2))
+        str_ra = (ra_hour_str+'h'+ra_min_str+'m'+ra_sec_str+'s')
+        return str_ra
+    
+
+    def oled_dec(dec_deg):
+        dec_decimal, dec_degrees = math.modf(dec_deg)
+        dec_degrees_str = str('%03d' %dec_degrees)
+        dec_minsec = abs(dec_decimal*60)
+        dec_seconds, dec_min = math.modf(dec_minsec)
+        dec_min_str = str('%02d' %dec_min)
+        dec_sec = dec_seconds*60
+        dec_sec_str = str(round(dec_sec, 2))
+        str_dec = (dec_degrees_str+'deg'+dec_min_str+'m'+dec_sec_str+'s')
+        return str_dec
 
     while True:
         if g_alt_corrected == False:
@@ -528,29 +551,13 @@ async def oled():
             oled.fill(0)
             # text, x-position, y-position
             oled.text("Right ascension:", 0, 0)
-            ra_deg = (g_ra_int/2**32)*24
-            ra_decimal , ra_hours = math.modf(ra_deg)
-            ra_hour_str = str('%02d' %ra_hours)
-            ra_minsec = ra_decimal*60
-            ra_seconds, ra_min = math.modf(ra_minsec)
-            ra_min_str = str('%02d' %ra_min)
-            ra_sec = ra_seconds*60
-            ra_sec_str = str(round(ra_sec, 2))
-            str_ra = (ra_hour_str+'h'+ra_min_str+'m'+ra_sec_str+'s')
+            str_ra = oled_ra(g_ra_int)
             oled.text(str_ra, 0, 15)
             oled.text("Declination:", 0, 30)
             dec_deg = (g_dec_int/2**32)*360
             if dec_deg >= 180:
                 dec_deg = dec_deg - 360
-                #print("dec_deg", dec_deg)
-            dec_decimal, dec_degrees = math.modf(dec_deg)
-            dec_degrees_str = str('%03d' %dec_degrees)
-            dec_minsec = abs(dec_decimal*60)
-            dec_seconds, dec_min = math.modf(dec_minsec)
-            dec_min_str = str('%02d' %dec_min)
-            dec_sec = dec_seconds*60
-            dec_sec_str = str(round(dec_sec, 2))
-            str_dec = (dec_degrees_str+'deg'+dec_min_str+'m'+dec_sec_str+'s')
+            str_dec = oled_dec(dec_deg)
             oled.text(str_dec, 0, 45)
             # Show the updated display
             oled.show()            
