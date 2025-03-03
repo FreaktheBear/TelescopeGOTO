@@ -343,44 +343,44 @@ async def goto_position():
 
     def ra_steps_calc(lha_old_abs, lha_new_abs):
 
-        # Initial start, moving from the meridian (quadrants 1-2)
+        # Initial start, goto to object moving from the meridian (quadrants 1-2)
         if 0 < lha_new_abs < lha_int_12h and lha_old_abs == 0:
             steps = -round((lha_int_6h - lha_new_abs)/2**32 * 8000)
             return steps
-        # Initial start, approaching the meridian (quadrants 3-4)
-        elif lha_int_12h < lha_new_abs < 2**32 and lha_old_abs == 0:
+        # Initial start, goto object approaching the meridian (quadrants 3-4)
+        elif lha_int_12h <= lha_new_abs < 2**32 and lha_old_abs == 0:
             steps = -round((lha_int_18h - lha_new_abs)/2**32 * 8000)
             return steps
-        # In progeress! Not working yet! Moving between two objects from quadrant 1-2 to 3-4
-        elif 0 < lha_old_abs < lha_int_12h and lha_int_12h < lha_new_abs < 2**32 and lha_abs_old != 0:
-            steps = round((lha_abs_old + (2**32 - lha_abs_new))/2**32 * 8000)
+        # Moving between two objects from quadrant 1-2 to 3-4
+        elif 0 < lha_old_abs < lha_int_12h and lha_int_12h < lha_new_abs < 2**32:
+            steps = round((lha_int_6h - lha_old_abs)/2**32 * 8000) - round((lha_int_18h - lha_new_abs)/2**32 * 8000)
             return steps
-        # In progerss! Not working yet! Moving between two objects from quadrant 3-4 to 1-2
-        elif lha_int_12h < lha_old_abs < 2**32 and 0 < lha_new_abs < lha_int_12h and lha_abs_old != 0:
-            steps = -round((lha_abs_new + (2**32 - lha_abs_old))/2**32 * 8000)
+        # Moving between two objects from quadrant 3-4 to 1-2
+        elif lha_int_12h < lha_old_abs < 2**32 and 0 < lha_new_abs < lha_int_12h:
+            steps = round((lha_int_18h - lha_old_abs)/2**32 * 8000) - round((lha_int_6h - lha_new_abs)/2**32 * 8000)
             return steps
         # Moving between both old an new objects moving from the meridian (quadrants 1-2)
-        elif 0 < lha_new_abs < lha_int_12h and 0 < lha_old_abs < lha_int_12h and lha_abs_old != 0:
-            if lha_abs_new > lha_abs_old:
-                steps = round((lha_abs_new - lha_abs_old)/2**32 * 8000)
+        elif 0 < lha_new_abs < lha_int_12h and 0 < lha_old_abs < lha_int_12h: # and lha_abs_old != 0:
+            if lha_new_abs > lha_old_abs:
+                steps = round((lha_new_abs - lha_old_abs)/2**32 * 8000)
                 return steps
-            elif lha_new_abs <= lha_abs_old:
-                steps = -round((lha_abs_old - lha_abs_new)/2**32 * 8000)
+            elif lha_new_abs <= lha_old_abs:
+                steps = -round((lha_old_abs - lha_new_abs)/2**32 * 8000)
                 return steps
         # Moving between both old an new objects approaching the meridian (quadrants 3-4)
-        elif lha_int_12h < lha_new_abs < 2**32 and lha_int_12h < lha_old_abs < 2**32 and lha_abs_old != 0:
-            if lha_abs_new > lha_abs_old:
+        elif lha_int_12h <= lha_new_abs < 2**32 and lha_int_12h <= lha_old_abs < 2**32: # and lha_abs_old != 0:
+            if lha_new_abs > lha_old_abs:
                 steps = -round((lha_abs_old - lha_abs_new)/2**32 * 8000)
                 return steps
             elif lha_new_abs <= lha_abs_old:
-                steps = round((lha_abs_new - lha_abs_old)/2**32 * 8000)
+                steps = round((lha_new_abs - lha_old_abs)/2**32 * 8000)
                 return steps
         else:
             steps = 0
             return steps
 
 
-    def dec_steps_calc(lha_new_abs, lha_old_abs, int_old_dec, int_new_dec):
+    def dec_steps_calc(lha_old_abs, lha_new_abs, int_old_dec, int_new_dec):
 
         # Moving between both old an new objects moving from the meridian (quadrants 1-2)
         if 0 < lha_new_abs < lha_int_12h and (0 < lha_old_abs < lha_int_12h or lha_old_abs == 0):
@@ -412,11 +412,17 @@ async def goto_position():
                 return steps
         # Moving between two objects from quadrant 1-2 to 3-4
         elif 0 < lha_old_abs < lha_int_12h and lha_int_12h < lha_new_abs < 2**32:
-            if dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec < int_old_dec:
-                steps = -round((int_old_dec - (dec_int_180 + 2**32 - int_old_dec) - (int_old_dec - int_new_dec))/2**32 * 8000)
+            if 0 < int_old_dec < dec_int_180 and 0 < int_new_dec < dec_int_180 and int_new_dec < int_old_dec:
+                steps = round((dec_int_180 - (int_new_dec + (int_old_dec - int_new_dec)))/2**32 * 8000)
+                return steps
+            elif 0 < int_old_dec < dec_int_180 and 0 < int_new_dec < dec_int_180 and int_new_dec > int_old_dec:
+                steps = round((dec_int_180 - (int_new_dec + (int_new_dec - int_old_dec)))/2**32 * 8000)
+                return steps
+            elif dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec < int_old_dec:
+                steps = round((dec_int_180 - (int_new_dec + (int_old_dec - int_new_dec)))/2**32 * 8000)
                 return steps
             elif dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec > int_old_dec:
-                steps = -round((int_old_dec - (dec_int_180 + 2**32 - int_old_dec) + (int_new_dec - int_old_dec))/2**32 * 8000)
+                steps = round((dec_int_180 - (int_new_dec + (int_new_dec - int_old_dec)))/2**32 * 8000)
                 return steps
             else:
                 steps = 100
@@ -481,7 +487,7 @@ async def goto_position():
             print("dec_int_old", dec_int_old)
             dec_int_new = g_dec_int
             print("dec_int_new", dec_int_new)
-            dec_steps = dec_steps_calc(lha_abs_new, lha_abs_old, dec_int_old, dec_int_new)
+            dec_steps = dec_steps_calc(lha_abs_old, lha_abs_new, dec_int_old, dec_int_new)
             print("dec_steps", dec_steps)
             stepper_dec.move(dec_steps, 8000, 2)
             ra_int_old = ra_int_new
