@@ -62,7 +62,8 @@ Installed stepper motors on a equatorial mount and designed a control unit for m
 
 ## Components Used
 
-1. Raspberry Pi 4B with RPI Bookworm OS and Stellarium; I used a Raspberry Pi 4B as I want to make the whole setup portable and have the serial connection from the GPIO to the Pi Pico GPIO. The Raspberry Pi 4B also communicates with a GPS module to provide location services for Stellarium without the need for an internet connection. See the following instructions on how to install Stellarium on Bookworm via the official Stellarium Ubuntu PPA https://github.com/Stellarium/stellarium/discussions/3943 
+1. Raspberry Pi 4B with RPI Bookworm OS and Stellarium; I used a Raspberry Pi 4B as I want to make the whole setup portable and have the serial connection from the GPIO to the Pi Pico GPIO. The Raspberry Pi 4B also communicates with a GPS module to provide location services for Stellarium without the need for an internet connection. See the following instructions on how to install Stellarium on Bookworm via the official Stellarium Ubuntu PPA: https://github.com/Stellarium/stellarium/discussions/3943 
+As described in the discussion, Bookworm has to be set from Wayland to X11, and Stellarium can only be started via the terminal.
 2. NEO-7 u-blox GPS; First I tried to use the NEO-6 but could hardly get a fix with these devices which ended in a lot of frustration. The NEO-7 performs way better. https://www.jaycar.co.nz/arduino-compatible-gps-receiver-module/p/XC3710 The GPS has a USB serial UART and a PIN based UART. In this way the USB connection can be used to provide GPS services to the RPI 4B, and the PIN connection can be utilized for the serial connection to the Pico. Make sure that you install GPSD services on Bookworm so that there is a GPS daemon running which can be accessed by Stellarium. Type: "sudo apt install -y gpsd gpsd-clients" in a terminal session. Edit the file /etc/default/gpsd with the following settings:
 ```
  # Devices gpsd should collect to at boot time.
@@ -87,3 +88,11 @@ Installed stepper motors on a equatorial mount and designed a control unit for m
  5. A4988 stepper motor drivers; Make sure you set the correct current limit. There are several sites we address this topic.
  6. SSD1306 OLED I2C 128x64 Display; I used the Soft I2C protocol which gave me the best results.
  7. Arduino Compatible X and Y Axis Joystick Module; I have added a joystick to be able to manually move the telescope to fine-tune positioning. If I have a fully working telescope control I might create a menu and star database so that the telescope can be used without Stellarium interaction.
+ 8. MPU6050 tilt sensor; The MPU6050 tilt sensor is used for one of the alignment steps by showing the local latitude offset. First the telescope tripod has to be levelled correctly (I use an iPhone app) and facing true North or South (also using my iPhone for this).
+
+ ## Usage of the combined setup
+
+ The following text discribes how to use the current combined setup of Stellarium on the RPI 4B and the Micropython software on the Pi Pico. This will be a living "document" as I am finding out a lot along the way and might change concepts.
+ 1. Start-up the RPI 4B and check in a terminal session with xgps if the GPS module has a fix.
+ 2. When there is a proper GPS fix, start Stellarium from a terminal session as described previously in the Components Used section. You can check if the GPS location works via [F6] "Location window" and select "Get location from GPS", which should show a 3D fix and your current location. Toggle it back so that Stellarium would be connecting continuously to the GPS daemon.
+ 3. On the RPI 4B, the serial services shall be enabled via raspi-config so that the RPI 4B can communicate with the Pi Pico. This should be the /dev/ttyS0 port configured on PIN 8 and 10 of the RPI 4B. When this is done, the ttyS0 port can be configured within the Stellarium "Configure Telescope" menu by selecting: 1) Telescope controlled by: Stellarium, directly through the serial port. 2) Connection delay: 0.5s. 3) Coordinate system: Equinox of the date (JNow). 4) Serial port: /dev/ttyS0. 5) Device model: Celestron NexStar (compatible).
