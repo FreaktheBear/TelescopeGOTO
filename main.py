@@ -296,14 +296,17 @@ async def goto_position():
     ra_int_new = g_ra_int
     lha_int_old = 0
     lha_int_new = 0
-    lha_int_6h = 2**32/4
-    lha_int_12h = 2**32/2
-    lha_int_18h = 2**32-2**32/4
     lha_abs_old = 0
     lha_abs_new = 0
-    dec_int_90 = 2**32/4
-    dec_int_180 = 2**32/2
+    ha_6h = 2**32/4
+    ha_12h = 2**32/2
+    ha_18h = 2**32-2**32/4
+    ha_24h = 2**32
+    dec_90deg = 2**32/4
+    dec_180deg = 2**32/2
+    dec_360deg = 2**32
     dec_int_old = g_dec_int
+    step_ratio = 8000
 
     counts = 0.0
     sid_sec_cnt = 928                 # counter value for sidereal day second = (1/23.934472222 * 8000)/3600 = 0.928460933
@@ -341,106 +344,122 @@ async def goto_position():
         return lha_hms
 
 
-    def ra_steps_calc(lha_old_abs, lha_new_abs):
+    def ra_steps_calc(ha_old, ha_new):
 
         # Initial start, goto to object moving from the meridian (quadrants 1-2)
-        if 0 < lha_new_abs < lha_int_12h and lha_old_abs == 0:
-            steps = -round((lha_int_6h - lha_new_abs)/2**32 * 8000)
+        if 0 < ha_new < ha_12h and ha_old == 0:
+            steps = -round((ha_6h - ha_new)/ha_24h * step_ratio)
             return steps
         # Initial start, goto object approaching the meridian (quadrants 3-4)
-        elif lha_int_12h <= lha_new_abs < 2**32 and lha_old_abs == 0:
-            steps = -round((lha_int_18h - lha_new_abs)/2**32 * 8000)
+        elif ha_12h <= ha_new < ha_24h and ha_old == 0:
+            steps = -round((ha_18h - ha_new)/ha_24h * step_ratio)
             return steps
         # Moving between two objects from quadrant 1-2 to 3-4
-        elif 0 < lha_old_abs < lha_int_12h and lha_int_12h < lha_new_abs < 2**32:
-            steps = round((lha_int_6h - lha_old_abs)/2**32 * 8000) - round((lha_int_18h - lha_new_abs)/2**32 * 8000)
+        elif 0 < ha_old < ha_12h and ha_12h < ha_new < ha_24h:
+            steps = round((ha_6h - ha_old)/ha_24h * step_ratio) - round((ha_18h - ha_new)/ha_24h * step_ratio)
             return steps
         # Moving between two objects from quadrant 3-4 to 1-2
-        elif lha_int_12h < lha_old_abs < 2**32 and 0 < lha_new_abs < lha_int_12h:
-            steps = round((lha_int_18h - lha_old_abs)/2**32 * 8000) - round((lha_int_6h - lha_new_abs)/2**32 * 8000)
+        elif ha_12h < ha_old < ha_24h and 0 < ha_new < ha_12h:
+            steps = round((ha_18h - ha_old)/ha_24h * step_ratio) - round((ha_6h - ha_new)/ha_24h * step_ratio)
             return steps
         # Moving between both old an new objects moving from the meridian (quadrants 1-2)
-        elif 0 < lha_new_abs < lha_int_12h and 0 < lha_old_abs < lha_int_12h: # and lha_abs_old != 0:
-            if lha_new_abs > lha_old_abs:
-                steps = round((lha_new_abs - lha_old_abs)/2**32 * 8000)
+        elif 0 < ha_new < ha_12h and 0 < ha_old < ha_12h:
+            if ha_new > ha_old:
+                steps = round((ha_new - ha_old)/ha_24h * step_ratio)
                 return steps
-            elif lha_new_abs <= lha_old_abs:
-                steps = -round((lha_old_abs - lha_new_abs)/2**32 * 8000)
+            elif ha_new <= ha_old:
+                steps = -round((ha_old - ha_new)/ha_24h * step_ratio)
                 return steps
         # Moving between both old an new objects approaching the meridian (quadrants 3-4)
-        elif lha_int_12h <= lha_new_abs < 2**32 and lha_int_12h <= lha_old_abs < 2**32: # and lha_abs_old != 0:
-            if lha_new_abs > lha_old_abs:
-                steps = -round((lha_abs_old - lha_abs_new)/2**32 * 8000)
+        elif ha_12h <= ha_new < ha_24h and ha_12h <= ha_old < ha_24h:
+            if ha_new > ha_old:
+                steps = -round((ha_old - ha_new)/ha_24h * step_ratio)
                 return steps
-            elif lha_new_abs <= lha_abs_old:
-                steps = round((lha_new_abs - lha_old_abs)/2**32 * 8000)
+            elif ha_new <= lha_abs_old:
+                steps = round((ha_new - ha_old)/ha_24h * step_ratio)
                 return steps
         else:
             steps = 0
             return steps
 
 
-    def dec_steps_calc(lha_old_abs, lha_new_abs, int_old_dec, int_new_dec):
+    def dec_steps_calc(ha_old, ha_new, dec_old, dec_new):
 
         # Moving between both old an new objects moving from the meridian (quadrants 1-2)
-        if 0 < lha_new_abs < lha_int_12h and (0 < lha_old_abs < lha_int_12h or lha_old_abs == 0):
-            if dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec > int_old_dec:
-                steps = -round((int_old_dec - int_new_dec)/2**32 * 8000)
+        if 0 <= ha_new < ha_12h and 0 <= ha_old < ha_12h:
+            if 0 <= dec_old < dec_180deg and 0 <= dec_new < dec_180deg and dec_new > dec_old:
+                steps = round((dec_new - dec_old)/dec_360deg * step_ratio)
                 return steps
-            elif dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec <= int_old_dec:
-                steps = round((int_new_dec - int_old_dec)/2**32 * 8000)
+            elif 0 <= dec_old < dec_180deg and 0 <= dec_new < dec_180deg and dec_new <= dec_old:
+                steps = -round((dec_old - dec_new)/dec_360deg * step_ratio)
                 return steps
-            elif dec_int_180 < int_old_dec < 2**32 and 0 < int_new_dec < dec_int_180:
-                steps = round((2**32 - int_old_dec + int_new_dec)/2**32 * 8000)
+            elif dec_180deg <= dec_old < dec_360deg and dec_180deg <= dec_new < dec_360deg and dec_new > dec_old:
+                steps = round((dec_new - dec_old)/dec_360deg * step_ratio)
                 return steps
-            elif dec_int_180 < int_new_dec < 2**32 and 0 < int_old_dec < dec_int_180:
-                steps = -round((2**32 - int_new_dec + int_old_dec)/2**32 * 8000)
+            elif dec_180deg <= dec_old < dec_360deg and dec_180deg <= dec_new < dec_360deg and dec_new <= dec_old:
+                steps = -round((dec_old - dec_new)/dec_360deg * step_ratio)
                 return steps
+            elif 0 < dec_old < dec_180deg and dec_180deg <= dec_new < dec_360deg:
+                steps = -round((dec_360deg - dec_new + dec_old)/dec_360deg * step_ratio)
+                return steps
+            elif dec_180deg <= dec_old < dec_360deg and 0 < dec_new < dec_180deg:
+                steps = round((dec_360deg - dec_old + dec_new)/dec_360deg * step_ratio)
+                return steps
+            
         # Moving between both old an new objects approaching the meridian (quadrants 3-4)
-        elif lha_int_12h < lha_new_abs < 2**32 and (lha_int_12h < lha_old_abs < 2**32 or lha_old_abs == 0):
-            if dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec > int_old_dec:
-                steps = -round((int_new_dec - int_old_dec)/2**32 * 8000)
+        elif ha_12h <= ha_new < ha_24h and (ha_12h <= ha_old < ha_24h or ha_old == 0):
+            if 0 <= dec_old < dec_180deg and 0 <= dec_new < dec_180deg and dec_new > dec_old:
+                steps = -round((dec_new - dec_old)/dec_360deg * step_ratio)
                 return steps
-            elif dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec <= int_old_dec:
-                steps = round((int_old_dec - int_new_dec)/2**32 * 8000)
+            elif 0 <= dec_old < dec_180deg and 0 <= dec_new < dec_180deg and dec_new <= dec_old:
+                steps = round((dec_old - dec_new)/dec_360deg * step_ratio)
                 return steps
-            elif dec_int_180 < int_old_dec < 2**32 and 0 < int_new_dec < dec_int_180:
-                steps = -round((2**32 - int_old_dec + int_new_dec)/2**32 * 8000)
+            elif dec_180deg <= dec_old < dec_360deg and dec_180deg <= dec_new < dec_360deg and dec_new > dec_old:
+                steps = -round((dec_new - dec_old)/dec_360deg * step_ratio)
                 return steps
-            elif dec_int_180 < int_new_dec < 2**32 and 0 < int_old_dec < dec_int_180:
-                steps = round((2**32 - int_new_dec + int_old_dec)/2**32 * 8000)
+            elif dec_180deg <= dec_old < dec_360deg and dec_180deg <= dec_new < dec_360deg and dec_new <= dec_old:
+                steps = round((dec_old - dec_new)/dec_360deg * step_ratio)
                 return steps
-        # Moving between two objects from quadrant 1-2 to 3-4
-        elif 0 < lha_old_abs < lha_int_12h and lha_int_12h < lha_new_abs < 2**32:
-            if 0 < int_old_dec < dec_int_180 and 0 < int_new_dec < dec_int_180 and int_new_dec < int_old_dec:
-                steps = round((dec_int_180 - (int_new_dec + (int_old_dec - int_new_dec)))/2**32 * 8000)
+            elif 0 < dec_old < dec_180deg and dec_180deg <= dec_new < dec_360deg:
+                steps = round((dec_360deg - dec_new + dec_old)/dec_360deg * step_ratio)
                 return steps
-            elif 0 < int_old_dec < dec_int_180 and 0 < int_new_dec < dec_int_180 and int_new_dec > int_old_dec:
-                steps = round((dec_int_180 - (int_new_dec + (int_new_dec - int_old_dec)))/2**32 * 8000)
+            elif dec_180deg <= dec_old < dec_360deg and 0 < dec_new < dec_180deg:
+                steps = -round((dec_360deg - dec_old + dec_new)/dec_360deg * step_ratio)
                 return steps
-            elif dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec < int_old_dec:
-                steps = round((dec_int_180 - (int_new_dec + (int_old_dec - int_new_dec)))/2**32 * 8000)
+        
+        # Moving between two objects from right side to left side of the meridian (quadrant 1-2 to 3-4)
+        elif 0 < ha_old < ha_12h and ha_12h <= ha_new < ha_24h:
+            if dec_180deg <= dec_old < dec_360deg and dec_180deg <= dec_new < dec_360deg:
+                steps = -round((dec_180deg - (dec_360deg - dec_new) - (dec_360deg - dec_old))/dec_360deg * step_ratio)
                 return steps
-            elif dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec > int_old_dec:
-                steps = round((dec_int_180 - (int_new_dec + (int_new_dec - int_old_dec)))/2**32 * 8000)
+            elif 0 <= dec_old < dec_180deg and 0 <= dec_new < dec_180deg:
+                steps = -round((dec_180deg + dec_new + dec_old)/dec_360deg * step_ratio)
                 return steps
-            else:
-                steps = 100
+            elif dec_180deg <= dec_old < dec_360deg and 0 <= dec_new < dec_180deg:
+                steps = -round((dec_180deg + dec_new - (dec_360deg - dec_old))/dec_360deg * step_ratio)
                 return steps
-        # Moving between two objects from quadrant 3-4 to 1-2
-        elif lha_int_12h < lha_old_abs < 2**32 and 0 < lha_new_abs < lha_int_12h:
-            if dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec < int_old_dec:
-                steps = -round((int_old_dec - (dec_int_180 + 2**32 - int_old_dec) - (int_old_dec - int_new_dec))/2**32 * 8000)
+            elif 0 <= dec_old < dec_180deg and dec_180deg <= dec_new < dec_360deg:
+                steps = -round((dec_180deg  + dec_old - (dec_360deg - dec_new))/dec_360deg * step_ratio)
                 return steps
-            elif dec_int_180 < int_old_dec < 2**32 and dec_int_180 < int_new_dec < 2**32 and int_new_dec > int_old_dec:
-                steps = round((int_old_dec - (dec_int_180 + 2**32 - int_old_dec) + (int_new_dec - int_old_dec))/2**32 * 8000)
+        
+        # Moving between two objects from left side to right side of the meridian (quadrant 3-4 to 1-2)
+        elif ha_12h <= ha_old < ha_24h and 0 <= ha_new < ha_12h:
+            if dec_180deg <= dec_old < dec_360deg and dec_180deg <= dec_new < dec_360deg:
+                steps = round((dec_180deg - (dec_360deg - dec_new) - (dec_360deg - dec_old))/dec_360deg * step_ratio)
                 return steps
-            else:
-                steps = 100
+            elif 0 <= dec_old < dec_180deg and 0 <= dec_new < dec_180deg:
+                steps = round((dec_180deg + dec_new + dec_old)/dec_360deg * step_ratio)
+                return steps
+            elif 0 <= dec_old < dec_180deg and dec_180deg <= dec_new < dec_360deg:
+                steps = round((dec_180deg  + dec_old - (dec_360deg - dec_new))/dec_360deg * step_ratio)
+                return steps
+            elif dec_180deg <= dec_old < dec_360deg and 0 <= dec_new < dec_180deg:
+                steps = round((dec_180deg + dec_new - (dec_360deg - dec_old))/dec_360deg * step_ratio)
                 return steps
         else:
             steps = 0
             return steps
+
 
 
     def hex_convert(int_value):
