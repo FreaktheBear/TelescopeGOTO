@@ -1,6 +1,6 @@
 # Introduction
 (This project is work in progress, I still need to go through some test stages)
-This readme describes the (attempts) to convert a table top Dobsonian telescope to a Newtonian GOTO telescope including tracking control via Stellarium.
+This readme describes the (attempts) to convert a table top Dobsonian telescope to a Newtonian GOTO telescope controlled via Stellarium including tracking of an object.
 Equatorial mounts have a preference for most astronomers as it compensates for the (tilted) earth rotation axis (perpendicular to the equatorial plane) so that tracking and astro photography are possible.
 
 As I received a donated broken Dobsonian, which I was able to repair, I quickly understood that finding and "tracking" objects via this table top Dobsonian is not very easy. Looking at the moon is okay but other objects quickly pose a challenge. I looked at a step by step approach on how I could improve the capabilities of the telescope.
