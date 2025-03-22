@@ -19,7 +19,7 @@ class KalmanFilter:
 '''================================================================================================================================================='''
 
 class MPU6050:
-    def __init__(self, busid, SDA, SCL, led="LED"): # *** FdB: changed led=25 to led="LED" for Pi Pico W
+    def __init__(self, busid, SDA, SCL, led=25): # *** FdB: change led=25 to led="LED" for Pi Pico W
         self.PWR_MGMT_1 = 0x6B
         self.SMPLRT_DIV = 0x19
         self.CONFIG = 0x1A

@@ -95,8 +95,7 @@ async def read_gpsrmc():
                     g_my_longitude = longitude
                     FIX_STATUS = True
                     g_gps_fix = True
-
-                    year = int('20'+parts[9][4:6])      # create RTC set datetime variables
+                    year = 2000 + int(parts[9][4:6])      # create RTC set datetime variables
                     month = int(parts[9][2:4])
                     day = int(parts[9][0:2])
                     hours = int(parts[1][0:2])
@@ -211,9 +210,8 @@ async def calculate_lst():
 async def read_pitchroll():
 
     global g_pitch, g_roll
-
-    obj = MPU6050(0,20,21)  
-    obj.callibrate_gyro() #calibrate gyro 
+    obj = MPU6050(0,20,21) 
+    obj.callibrate_gyro() #calibrate gyro
     obj.callibrate_acc() #calibrating accelerometer
     
     while True:
@@ -304,14 +302,13 @@ async def goto_position():
     ha_24h = 2**32
     dec_90deg = 2**32/4
     dec_180deg = 2**32/2
+    dec_270deg = 2**32-2**32/4
     dec_360deg = 2**32
     dec_int_old = g_dec_int
-    step_ratio = 8000
+    flipped = False
 
     counts = 0.0
     sid_sec_cnt = 928                 # counter value for sidereal day second = (1/23.934472222 * 8000)/3600 = 0.928460933
-    utc_offset = False
-    utc_rasteps = 0
 
     step_pin_ra = 11
     dir_pin_ra = 10
@@ -321,6 +318,7 @@ async def goto_position():
     dir_pin_dec = 14
     stepper_dec = Stepper(dir_pin_dec, step_pin_dec)
 
+    step_ratio = 8000
             
     def lha_abs_calc(int_lha):
 
@@ -348,39 +346,52 @@ async def goto_position():
 
         # Initial start, goto to object moving from the meridian (quadrants 1-2)
         if 0 < ha_new < ha_12h and ha_old == 0:
+            flipped = True
             steps = -round((ha_6h - ha_new)/ha_24h * step_ratio)
-            return steps
+            return steps, flipped
         # Initial start, goto object approaching the meridian (quadrants 3-4)
         elif ha_12h <= ha_new < ha_24h and ha_old == 0:
+            flipped = False
             steps = -round((ha_18h - ha_new)/ha_24h * step_ratio)
-            return steps
+            return steps, flipped
         # Moving between two objects from quadrant 1-2 to 3-4
         elif 0 < ha_old < ha_12h and ha_12h < ha_new < ha_24h:
+            flipped = False
             steps = round((ha_6h - ha_old)/ha_24h * step_ratio) - round((ha_18h - ha_new)/ha_24h * step_ratio)
-            return steps
+            return steps, flipped
         # Moving between two objects from quadrant 3-4 to 1-2
         elif ha_12h < ha_old < ha_24h and 0 < ha_new < ha_12h:
+            flipped = True
             steps = round((ha_18h - ha_old)/ha_24h * step_ratio) - round((ha_6h - ha_new)/ha_24h * step_ratio)
-            return steps
+            return steps, flipped
         # Moving between both old an new objects moving from the meridian (quadrants 1-2)
         elif 0 < ha_new < ha_12h and 0 < ha_old < ha_12h:
+            flipped = True
             if ha_new > ha_old:
                 steps = round((ha_new - ha_old)/ha_24h * step_ratio)
                 return steps
             elif ha_new <= ha_old:
                 steps = -round((ha_old - ha_new)/ha_24h * step_ratio)
-                return steps
+                return steps, flipped
         # Moving between both old an new objects approaching the meridian (quadrants 3-4)
         elif ha_12h <= ha_new < ha_24h and ha_12h <= ha_old < ha_24h:
+            flipped = False
             if ha_new > ha_old:
                 steps = -round((ha_old - ha_new)/ha_24h * step_ratio)
                 return steps
             elif ha_new <= lha_abs_old:
                 steps = round((ha_new - ha_old)/ha_24h * step_ratio)
-                return steps
+                return steps, flipped
         else:
+            flipped = None
             steps = 0
-            return steps
+            return steps, flipped
+        
+
+    def ra_steps_flip():
+        flipped = True
+        steps = -round(ha_12h/ha_24h * step_ratio)
+        return steps, flipped
 
 
     def dec_steps_calc(ha_old, ha_new, dec_old, dec_new):
@@ -451,7 +462,7 @@ async def goto_position():
                 steps = round((dec_180deg + dec_new + dec_old)/dec_360deg * step_ratio)
                 return steps
             elif 0 <= dec_old < dec_180deg and dec_180deg <= dec_new < dec_360deg:
-                steps = round((dec_180deg  + dec_old - (dec_360deg - dec_new))/dec_360deg * step_ratio)
+                steps = round((dec_180deg + dec_old - (dec_360deg - dec_new))/dec_360deg * step_ratio)
                 return steps
             elif dec_180deg <= dec_old < dec_360deg and 0 <= dec_new < dec_180deg:
                 steps = round((dec_180deg + dec_new - (dec_360deg - dec_old))/dec_360deg * step_ratio)
@@ -461,6 +472,13 @@ async def goto_position():
             return steps
 
 
+    def dec_steps_flip(dec_old):
+        if 0 <= dec_old < dec_180deg:
+            steps = round(dec_270deg/dec_360deg * step_ratio)
+            return steps
+        elif dec_180deg <= dec_old < dec_360deg:
+            steps = round(dec_90deg/dec_360deg * step_ratio)
+            return steps
 
     def hex_convert(int_value):
         hex_value = hex(int_value)
@@ -477,15 +495,24 @@ async def goto_position():
                 counts = 0
             if g_joy_left == True:
                 stepper_ra.move(-1, 8000, 1)
+                await asyncio.sleep(0.5)
             elif g_joy_right == True:
                 stepper_ra.move(1, 8000, 1)
+                await asyncio.sleep(0.5)
             elif g_joy_up == True:
                 stepper_dec.move(-1, 8000, 1)
+                await asyncio.sleep(0.5)
             elif g_joy_down == True:
                 stepper_dec.move(1, 8000, 1)
+                await asyncio.sleep(0.5)
             lha_int_old = g_lst_int - ra_int_old
             lha_abs_old = lha_abs_calc(lha_int_old)
             g_lha_hms = lha_hms_calc(lha_abs_old)
+            if ra_int_old < g_lst_int and ra_int_old != 0 and flipped == False:
+                ra_steps, flipped = ra_steps_flip()
+                stepper_ra.move(ra_steps, 8000, 2)
+                dec_steps = dec_steps_flip(dec_int_old)
+                stepper_dec.move(dec_steps, 8000, 2)
             ra_hex = hex_convert(ra_int_old)
             dec_hex = hex_convert(dec_int_old)
             g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')
@@ -500,7 +527,7 @@ async def goto_position():
             lha_abs_new = lha_abs_calc(lha_int_new)
             print("lha_abs_new", lha_abs_new)
             g_lha_hms = lha_hms_calc(lha_abs_new)
-            ra_steps = ra_steps_calc(lha_abs_old, lha_abs_new)
+            ra_steps, flipped = ra_steps_calc(lha_abs_old, lha_abs_new)
             print("ra_steps", ra_steps)
             stepper_ra.move(ra_steps, 8000, 2)
             print("dec_int_old", dec_int_old)
