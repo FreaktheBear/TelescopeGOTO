@@ -308,7 +308,7 @@ async def goto_position():
     flipped = False
 
     counts = 0.0
-    sid_sec_cnt = 928                 # counter value for sidereal day second = (1/23.934472222 * 8000)/3600 = 0.928460933
+    sid_sec_cnt = 920                 # counter value for sidereal day second = (1/23.934472222 * 8000)/3600 = 0.928460933 (note: tweaked manually)
 
     step_pin_ra = 11
     dir_pin_ra = 10
@@ -346,44 +346,46 @@ async def goto_position():
 
         # Initial start, goto to object moving from the meridian (quadrants 1-2)
         if 0 < ha_new < ha_12h and ha_old == 0:
-            flipped = True
             steps = -round((ha_6h - ha_new)/ha_24h * step_ratio)
+            flipped = True
             return steps, flipped
         # Initial start, goto object approaching the meridian (quadrants 3-4)
         elif ha_12h <= ha_new < ha_24h and ha_old == 0:
-            flipped = False
             steps = -round((ha_18h - ha_new)/ha_24h * step_ratio)
+            flipped = False
             return steps, flipped
         # Moving between two objects from quadrant 1-2 to 3-4
         elif 0 < ha_old < ha_12h and ha_12h < ha_new < ha_24h:
-            flipped = False
             steps = round((ha_6h - ha_old)/ha_24h * step_ratio) - round((ha_18h - ha_new)/ha_24h * step_ratio)
+            flipped = False
             return steps, flipped
         # Moving between two objects from quadrant 3-4 to 1-2
         elif ha_12h < ha_old < ha_24h and 0 < ha_new < ha_12h:
-            flipped = True
             steps = round((ha_18h - ha_old)/ha_24h * step_ratio) - round((ha_6h - ha_new)/ha_24h * step_ratio)
+            flipped = True
             return steps, flipped
         # Moving between both old an new objects moving from the meridian (quadrants 1-2)
         elif 0 < ha_new < ha_12h and 0 < ha_old < ha_12h:
-            flipped = True
             if ha_new > ha_old:
                 steps = round((ha_new - ha_old)/ha_24h * step_ratio)
-                return steps
+                flipped = True
+                return steps, flipped
             elif ha_new <= ha_old:
                 steps = -round((ha_old - ha_new)/ha_24h * step_ratio)
+                flipped = True
                 return steps, flipped
         # Moving between both old an new objects approaching the meridian (quadrants 3-4)
         elif ha_12h <= ha_new < ha_24h and ha_12h <= ha_old < ha_24h:
-            flipped = False
             if ha_new > ha_old:
                 steps = -round((ha_old - ha_new)/ha_24h * step_ratio)
+                flipped = False
                 return steps
             elif ha_new <= lha_abs_old:
                 steps = round((ha_new - ha_old)/ha_24h * step_ratio)
+                flipped = False
                 return steps, flipped
         else:
-            flipped = None
+            flipped = False
             steps = 0
             return steps, flipped
         
@@ -474,7 +476,7 @@ async def goto_position():
 
     def dec_steps_flip(dec_old):
         if 0 <= dec_old < dec_180deg:
-            steps = round(dec_270deg/dec_360deg * step_ratio)
+            steps = round(dec_180deg/dec_360deg * step_ratio)
             return steps
         elif dec_180deg <= dec_old < dec_360deg:
             steps = round(dec_90deg/dec_360deg * step_ratio)
