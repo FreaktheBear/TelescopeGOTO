@@ -3,7 +3,7 @@ import binascii
 import os
 import math
 import utime, time
-from machine import I2C, SoftI2C, Pin, UART, ADC, RTC
+from machine import SoftI2C, Pin, UART, ADC, RTC
 from MPU import MPU6050
 from ssd1306 import SSD1306_I2C
 from stepper import Stepper
@@ -308,7 +308,7 @@ async def goto_position():
     flipped = False
 
     counts = 0.0
-    sid_sec_cnt = 920                 # counter value for sidereal day second = (1/23.934472222 * 8000)/3600 = 0.928460933 (note: tweaked manually)
+    sid_sec_cnt = 920                # counter value for sidereal day second = (1/23.934472222 * 8000)/3600 = 0.928460933 (note: tweaked manually)
 
     step_pin_ra = 11
     dir_pin_ra = 10
@@ -318,7 +318,7 @@ async def goto_position():
     dir_pin_dec = 14
     stepper_dec = Stepper(dir_pin_dec, step_pin_dec)
 
-    step_ratio = 8000
+    step_ratio = 8000               # full revolution = 200 * 8microsteps * 5gearratio = 8000 steps
             
     def lha_abs_calc(int_lha):
 
@@ -523,20 +523,20 @@ async def goto_position():
                 ra_int_old = g_lst_int
             lha_int_old = g_lst_int - ra_int_old
             lha_abs_old = lha_abs_calc(lha_int_old)
-            print("lha_abs_old", lha_abs_old)
+            #print("lha_abs_old", lha_abs_old)
             ra_int_new = g_ra_int
             lha_int_new = g_lst_int - ra_int_new
             lha_abs_new = lha_abs_calc(lha_int_new)
-            print("lha_abs_new", lha_abs_new)
+            #print("lha_abs_new", lha_abs_new)
             g_lha_hms = lha_hms_calc(lha_abs_new)
             ra_steps, flipped = ra_steps_calc(lha_abs_old, lha_abs_new)
-            print("ra_steps", ra_steps)
+            #print("ra_steps", ra_steps)
             stepper_ra.move(ra_steps, 8000, 2)
-            print("dec_int_old", dec_int_old)
+            #print("dec_int_old", dec_int_old)
             dec_int_new = g_dec_int
-            print("dec_int_new", dec_int_new)
+            #print("dec_int_new", dec_int_new)
             dec_steps = dec_steps_calc(lha_abs_old, lha_abs_new, dec_int_old, dec_int_new)
-            print("dec_steps", dec_steps)
+            #print("dec_steps", dec_steps)
             stepper_dec.move(dec_steps, 8000, 2)
             ra_int_old = ra_int_new
             lha_abs_old = lha_abs_new
@@ -698,30 +698,3 @@ except OSError as e:
 finally:
     asyncio.new_event_loop() #Create a new event loop
 
-
-"""        elif g_scope_slew == True:
-            if ra_int_old == 0:
-                ra_int_old = g_lst_int
-            lha_int_old = g_lst_int - ra_int_old
-            lha_abs_old = lha_abs_calc(lha_int_old)
-            print("lha_abs_old", lha_abs_old)
-            ra_int_new = g_ra_int
-            lha_int_new = g_lst_int - ra_int_new
-            lha_abs_new = lha_abs_calc(lha_int_new)
-            print("lha_abs_new", lha_abs_new)
-            g_lha_hms = lha_hms_calc(lha_abs_new)
-            ra_steps = ra_steps_calc(lha_abs_old, lha_abs_new)
-            print("ra_steps", ra_steps)
-            stepper_ra.move(ra_steps, 8000, 2)
-            ra_int_old = ra_int_new
-            lha_abs_old = lha_abs_new
-            ra_hex = hex_convert(ra_int_old)
-            print("dec_int_old", dec_int_old)
-            dec_int_new = g_dec_int
-            print("dec_int_new", dec_int_new)
-            dec_steps = dec_steps_calc(lha_abs_new, lha_abs_old, dec_int_old, dec_int_new)
-            print("dec_steps", dec_steps)
-            stepper_dec.move(dec_steps, 8000, 2)
-            dec_int_old = dec_int_new
-            dec_hex = hex_convert(dec_int_old)
-            g_precise_ra_dec = str.upper(ra_hex + ',' + dec_hex + '#')"""
