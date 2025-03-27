@@ -1,5 +1,6 @@
 # Introduction
-(This project is work in progress, I still need to go through some test stages)
+_(This project is work in progress, I still need to go through some test stages, also the setup is currently for the Southern hemispere, if all works well I will try to add a selection menu on the controller)_
+
 This readme describes the (attempts) to convert a table top Dobsonian telescope to a Newtonian GOTO telescope controlled via Stellarium including tracking of an object.
 Equatorial mounts have a preference for most astronomers as it compensates for the (tilted) earth rotation axis (perpendicular to the equatorial plane) so that tracking and astro photography are possible.
 
@@ -11,17 +12,16 @@ After trying out different things I decided to start first with a "push to" solu
 Of course you can buy an equatorial mount which will give you all the bells and whistles for serious stargazing.
 For me it is an interesting project which involves both theoretical and practical parts which makes it fun for me to learn new stuff.
 
-(Update)
-A lot of learning on the job has passed and some initial ideas turned out not to work at all.
+**(Update)** A lot of learning on the job has passed and some initial ideas turned out not to work at all.
 Also bought a proper equatorial mount via a local marketplace to convert to an automated mount.
 There will be no feedback for positioning at the moment and the NexStar object position command, sent from Stellarium via serial connection, is handled by the Pi Pico to drive the stepper motors to the correct RA/DEC coordinates.
 Indoor testing with verification of the Stellarium mobile app on my phone have proven fruitful, and currently the telescope is able to initially move to objects either left or right of the meridian, and moving between objects left or right of the meridian.
-Current challenge is moving across the meridian.
+Current challenge is moving across the meridian. Due to the "low" count of pulley teeth, objects will not be tracked in a fluent way, astro-photography is not my aim for now I just want to prove a concept. Finer movement can be accomplished by using 0.9 degree stepper motors and/or larger pulleys or other type of larger transmission ratio.
 
 ## Objectives
-1. Having a challenging project to learn MicroPython on a Raspberry Pi Pico for the telescope control, and communication with Stellarium on a Raspberry Pi 4b.
+1. Having a challenging project to learn MicroPython on a Raspberry Pi Pico for telescope control, and communication with Stellarium on a Raspberry Pi 4b.
 2. Low cost, with most "mechanical" parts from a local DIY shop.
-3. Allignment and positioning based upon data from a 9-axis MPU and a GPS module. (Update: one MPU poses too much problems getting the correct right ascension / declination data for the NextStar protocol, so I decided to use two MPU6050's for the moment) (Update: MPU6050 positioning feedback deprecated)
+3. Allignment and positioning based upon data from a 9-axis MPU and a GPS module. (Update: MPU6050 positioning feedback deprecated, MPU6050 is "only" used for reading out latitude for initial allignment of the telescope)
 4. Telescope control and tracking based on NEMA 17 stepper motors driven by A4988 drivers and pulsed from the Pi Pico PIO.
 
 
@@ -62,9 +62,9 @@ Installed stepper motors on a equatorial mount and designed a control unit for m
 
 ## Components Used
 
-1. Raspberry Pi 4B with RPI Bookworm OS and Stellarium; I used a Raspberry Pi 4B as I want to make the whole setup portable and have the serial connection from the GPIO to the Pi Pico GPIO. The Raspberry Pi 4B also communicates with a GPS module to provide location services for Stellarium without the need for an internet connection. See the following instructions on how to install Stellarium on Bookworm via the official Stellarium Ubuntu PPA: https://github.com/Stellarium/stellarium/discussions/3943 
+1. **Raspberry Pi 4B with RPI Bookworm OS and Stellarium**; I used a Raspberry Pi 4B as I want to make the whole setup portable and have the serial connection from the GPIO to the Pi Pico GPIO. The Raspberry Pi 4B also communicates with a GPS module to provide location services for Stellarium without the need for an internet connection. See the following instructions on how to install Stellarium on Bookworm via the official Stellarium Ubuntu PPA: https://github.com/Stellarium/stellarium/discussions/3943 
 As described in the discussion, Bookworm has to be set from Wayland to X11, and Stellarium can only be started via the terminal. My Bookworm OS is installed on a SSD. I use an Argon One M.2 case.
-2. NEO-7 u-blox GPS; First I tried to use the NEO-6 but could hardly get a fix with these devices which ended in a lot of frustration. The NEO-7 performs way better. https://www.jaycar.co.nz/arduino-compatible-gps-receiver-module/p/XC3710 The GPS has a USB serial UART and a PIN based UART. In this way the USB connection can be used to provide GPS services to the RPI 4B, and the PIN connection can be utilized for the serial connection to the Pico. Make sure that you install GPSD services on Bookworm so that there is a GPS daemon running which can be accessed by Stellarium. Type: "sudo apt install -y gpsd gpsd-clients" in a terminal session. Edit the file /etc/default/gpsd with the following settings:
+2. **NEO-7 u-blox GPS**; First I tried to use the NEO-6 but could hardly get a fix with these devices which ended in a lot of frustration. The NEO-7 performs way better (after outdoor testing I added an external GPS antenna to enhance GPS fix performance, the NEO-7 unit I have comes with an SMA connector, and in my case C2 had to be removed to avoid interference with the onboard antenna). https://www.jaycar.co.nz/arduino-compatible-gps-receiver-module/p/XC3710 The GPS has a USB serial UART and a PIN based UART. In this way the USB connection can be used to provide GPS services to the RPI 4B, and the PIN connection can be utilized for the serial connection to the Pico. Make sure that you install GPSD services on Bookworm so that there is a GPS daemon running which can be accessed by Stellarium. Type: "sudo apt install -y gpsd gpsd-clients" in a terminal session. Edit the file /etc/default/gpsd with the following settings:
 ```
  # Devices gpsd should collect to at boot time.
  START_DAEMON="true"
@@ -83,12 +83,13 @@ As described in the discussion, Bookworm has to be set from Wayland to X11, and 
  # u-blox AG, u-blox 7 [linux module: cdc_acm]
  etc
  ```
- 3. Raspberry Pi Pico; I used the first generation Pi Pico, and probably the second generation will also work but this hasn't been tested. Personally I have setup VSCODE on my Ubuntu 24.04.2 LTS system, with the MicroPico extension from Paul Ober. In this way development is much easier with the Github integration. Of course you can use Thonny IDE if you prefer that. A remark with regards to the VSCODE option, I wasn't able to use special characters within the VSCODE editor. Initially I wanted to use the Meade LX-200 telescope protocol but changed to the NexStar protocol which doesn't use special characters.
- 4. Stepper motors; Any regular NEMA-17 stepper motors will do.
- 5. A4988 stepper motor drivers; Make sure you set the correct current limit. There are several sites which address this topic.
- 6. SSD1306 OLED I2C 128x64 Display; I used the Soft I2C protocol which gave me the best results.
- 7. Arduino Compatible X and Y Axis Joystick Module; I have added a joystick to be able to manually move the telescope to fine-tune positioning. If I have a fully working telescope control I might create a menu and star database so that the telescope can be used without Stellarium interaction. Menu control will have to be done then via the joystick.
- 8. MPU6050 tilt sensor; The MPU6050 tilt sensor is used for one of the alignment steps by showing the local latitude offset. First the telescope tripod has to be levelled correctly (I use an iPhone app) and facing true North or South (also using my iPhone for this).
+ 3. **Raspberry Pi Pico**; I use the first generation Pi Pico, and probably the second generation will also work but this hasn't been tested. Personally I have setup VSCODE on my Ubuntu 24.04.2 LTS system, with the MicroPico extension from Paul Ober. In this way development is much easier with the Github integration. Of course you can use Thonny IDE if you prefer that. A remark with regards to the VSCODE option, I wasn't able to use special characters within the VSCODE editor. Initially I wanted to use the Meade LX-200 telescope protocol but changed to the NexStar protocol which doesn't use special characters.
+ 4. **Stepper motors**; Any regular NEMA-17 stepper motors will do.
+ 5. **Pulleys**; The NEMA-17 stepper motors have 16 teeth pulleys. I purchased 80 teeth Uxcell pulleys and timing belts from Amazon. A full revolution is based on **_200(full rotation 1.8 degrees) * 8microsteps * 5gearratio = 8000 steps_**
+ 6. **A4988 stepper motor drivers**; Make sure you set the correct current limit. There are several sites which address this topic.
+ 7. SSD1306 OLED I2C 128x64 Display; I used the Soft I2C protocol which gave me the best results.
+ 8. **Arduino Compatible X and Y Axis Joystick Module**; I have added a joystick to be able to manually move the telescope to fine-tune positioning. If I have a fully working telescope control I might create a menu and star database so that the telescope can be used without Stellarium interaction. Menu control will have to be done then via the joystick.
+ 9. **MPU6050 tilt sensor**; The MPU6050 tilt sensor is used for one of the alignment steps by showing the local latitude offset. First the telescope tripod has to be levelled correctly (I use an iPhone app) and facing true North or South (also using my iPhone for this).
 
  ## Usage of the combined setup
 
